@@ -492,7 +492,7 @@ const POLL_INTERVAL = 4_000   // ms between status checks
 
 export function ArtifactPanel({ sessionId }: ArtifactPanelProps) {
   const [analysis, setAnalysis]     = useState<DatasetAnalysis | null>(null)
-  const [status,   setStatus]       = useState<ArtifactStatus>({ notebook: false, models: [] })
+  const [status,   setStatus]       = useState<ArtifactStatus>({ notebook: false, models: [], images: [] })
   const pollRef                     = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
