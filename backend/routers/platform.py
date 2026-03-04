@@ -489,8 +489,12 @@ async def create_notebook(session_id: str, payload: dict):
 
     (session.session_dir / "generated_script.py").write_text(script)
 
-    for stale in (session.session_dir / "output").glob("*.keras"):
+    output_dir = session.session_dir / "output"
+    for stale in output_dir.glob("*.keras"):
         stale.unlink()
+    for stale in output_dir.iterdir():
+        if stale.suffix.lower() in {".png", ".jpg", ".jpeg", ".svg", ".csv"}:
+            stale.unlink()
 
     return {"ok": True, "path": str(path)}
 
@@ -549,6 +553,25 @@ async def download_image(session_id: str, filename: str):
 
     media_map = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "svg": "image/svg+xml"}
     return FileResponse(path=str(image_path), media_type=media_map[ext])
+
+
+@router.get("/progress-once/{task_id}")
+async def progress_once(task_id: str):
+    """Single JSON snapshot of a Celery task's current state. Used for polling."""
+    from celery.result import AsyncResult
+    result = AsyncResult(task_id, app=celery_app)
+    info   = result.info if isinstance(result.info, dict) else {}
+    error  = info.get("error")
+    if result.state == "FAILURE" and not error:
+        exc   = result.info
+        error = str(exc) if exc is not None else "Compilation failed"
+    return {
+        "state"   : result.state,
+        "progress": info.get("progress", 0),
+        "step"    : info.get("step", ""),
+        "error"   : error,
+        "metrics" : info.get("metrics"),
+    }
 
 
 @router.get("/progress/{task_id}")

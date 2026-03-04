@@ -27,9 +27,14 @@ Describe your problem, upload your data, and receive production-ready TensorFlow
 
 ---
 <img src="docs/images/screen.png" width="100%" alt="Obsidian Networks UI" />
-<img src="docs/images/demo.png" width="100%" alt="Obsidian Networks demo" />
 
 ---
+
+<img src="docs/images/demo_one.png" width="100%" alt="Obsidian Networks demo" />
+
+---
+
+<img src="docs/images/demo_two.png" width="100%" alt="Obsidian Networks demo" />
 
 
 ## Table of Contents
@@ -336,16 +341,10 @@ All configuration lives in `.env` at the repo root (Docker) or `frontend/.env.lo
 
 Two sample datasets are included in the repository root to get started immediately:
 
-### `house_pricing_sample.csv` — Supervised Regression
-1,200 houses with features including square footage, bedrooms, bathrooms, neighbourhood score, and distance to CBD. Target column: `price`.
+### `heart_failure_dataset.csv` — Binary Classification
+918 patients with 11 clinical features including age, sex, chest pain type, resting blood pressure, cholesterol, fasting blood sugar, resting ECG, max heart rate, exercise angina, ST depression (Oldpeak), and ST slope. Target column: `HeartDisease` (0 = no disease, 1 = disease).
 
-**Try:** *"Build a regression model to predict house prices. Try a Wide & Deep architecture."*
-
-### `energy_consumption_sample.csv` — Time Series Forecasting
-8,760 rows of hourly energy consumption data for 2021. Columns: `timestamp`, `consumption_kwh`, `temperature_c`, `humidity_pct`, `hour_of_day`, `day_of_week`, `is_weekend`, `is_holiday`, `month`.
-
-**Try:** *"Forecast hourly energy consumption for the next 24 hours using an LSTM."*
-
+**Try:** *"Build a binary classifier to predict heart disease risk. Use a deep neural network with dropout regularisation."*
 ---
 
 ## Tech Stack
@@ -391,7 +390,7 @@ obsidian-networks/
 ├── worker-seccomp.json             # Seccomp profile blocking dangerous syscalls in worker
 ├── .env.example                    # Root environment variables with documentation
 ├── backend/.env.example            # Backend-specific environment variables
-├── house_pricing_sample.csv        # Sample dataset — supervised regression
+├── heart_failure_dataset.csv       # Sample dataset — binary classification
 └── energy_consumption_sample.csv   # Sample dataset — time series forecasting
 ```
 

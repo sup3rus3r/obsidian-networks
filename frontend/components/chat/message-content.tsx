@@ -190,8 +190,12 @@ export function MessageContent({ content, isStreaming = false, className }: Mess
         {content}
       </ReactMarkdown>
 
-      {isStreaming && (
-        <span className="inline-block h-4 w-0.5 animate-pulse bg-zinc-400 align-middle" />
+      {isStreaming && content && (
+        <span className="inline-flex items-center gap-0.5 ml-0.5 align-middle">
+          <span className="h-1 w-1 rounded-full bg-zinc-500 animate-bounce [animation-delay:0ms]" />
+          <span className="h-1 w-1 rounded-full bg-zinc-500 animate-bounce [animation-delay:150ms]" />
+          <span className="h-1 w-1 rounded-full bg-zinc-500 animate-bounce [animation-delay:300ms]" />
+        </span>
       )}
     </div>
   )

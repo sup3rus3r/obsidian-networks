@@ -11,6 +11,7 @@ export const AppRoutes = {
   ArtifactStatus:     (sid: string) => `/api/platform/status/${sid}`,
   CreateNotebook:     (sid: string) => `/api/platform/notebook/${sid}`,
   JobProgress:        (tid: string) => `/api/platform/progress/${tid}`,
+  JobProgressOnce:    (tid: string) => `/api/platform/progress-once/${tid}`,
   DownloadModelFile:  (sid: string, filename: string) => `/api/platform/download/${sid}/model/${filename}`,
   DownloadNotebook:   (sid: string) => `/api/platform/download/${sid}/notebook`,
   ViewImage:          (sid: string, filename: string) => `/api/platform/download/${sid}/image/${filename}`,

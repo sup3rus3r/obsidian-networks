@@ -232,10 +232,11 @@ const STAGES = [
 ]
 
 function stepToStage(step: string, progress: number): number {
-  if (step.includes('Saving'))                    return 4
-  if (step.startsWith('Epoch') || progress > 18)  return 3
-  if (step.includes('Building'))                  return 2
-  if (step.includes('Loading'))                   return 1
+  if (step.includes('Saving'))                                    return 4
+  if (step.includes('Evaluating'))                                return 4
+  if (step.startsWith('Epoch') || progress > 18)                  return 3
+  if (step.includes('Building'))                                  return 2
+  if (step.includes('Loading'))                                   return 1
   return 0
 }
 
@@ -375,7 +376,7 @@ function CompileRunningState({
         <div className="flex items-center gap-1.5">
           <Loader2 className="h-3 w-3 text-zinc-600 animate-spin" />
           <span className="text-[10px] text-zinc-600 animate-pulse">
-            Writing model files and plots…
+            {compile.step || 'Evaluating & saving outputs…'}
           </span>
         </div>
       )}
@@ -407,20 +408,14 @@ function CompileSection({
     phase: 'idle', progress: 0, step: '', error: null,
   })
   const [metrics, setMetrics] = useState<EpochMetrics[]>([])
-  const esRef = useRef<EventSource | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // Clean up SSE on unmount
-  useEffect(() => () => { esRef.current?.close() }, [])
+  // Clean up poll on unmount
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
 
-  // Reset to idle when model becomes ready (another tab triggered compile, etc.)
-  useEffect(() => {
-    if (status.models.length > 0 && compile.phase === 'running') {
-      esRef.current?.close()
-      setCompile({ phase: 'idle', progress: 100, step: 'Done', error: null })
-    }
-  }, [status.models, compile.phase])
-
-  if (!status.notebook || status.models.length > 0) return null
+  // Hide if: no notebook yet, OR (model exists AND task is not actively running/errored)
+  if (!status.notebook) return null
+  if (status.models.length > 0 && compile.phase === 'idle') return null
 
   const startCompile = async () => {
     setCompile({ phase: 'running', progress: 0, step: 'Queuing…', error: null })
@@ -432,37 +427,38 @@ function CompileSection({
       return
     }
 
-    const es = new EventSource(`/api/platform/progress/${result.task_id}`)
-    esRef.current = es
-
-    es.onmessage = (e) => {
-      const data = JSON.parse(e.data) as {
-        state: string; progress: number; step: string; error?: string
-        metrics?: EpochMetrics
-      }
-      if (data.state === 'SUCCESS') {
-        es.close()
-        setCompile({ phase: 'idle', progress: 100, step: 'Done', error: null })
-        onCompileSuccess()
-      } else if (data.state === 'FAILURE') {
-        es.close()
-        setCompile({ phase: 'error', progress: 0, step: '', error: data.error ?? 'Compilation failed' })
-      } else {
-        setCompile(prev => ({
-          ...prev,
-          progress: data.progress ?? prev.progress,
-          step    : data.step    ?? prev.step,
-        }))
-        if (data.metrics) {
-          setMetrics(prev => [...prev, data.metrics!])
+    // Poll the one-shot JSON endpoint — EventSource doesn't work through Next.js rewrites
+    pollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/platform/progress-once/${result.task_id}`)
+        if (!res.ok) return
+        const data = await res.json() as {
+          state: string; progress: number; step: string; error?: string
+          metrics?: EpochMetrics
         }
+        if (data.state === 'SUCCESS') {
+          clearInterval(pollRef.current!)
+          pollRef.current = null
+          setCompile({ phase: 'idle', progress: 100, step: 'Done', error: null })
+          onCompileSuccess()
+        } else if (data.state === 'FAILURE') {
+          clearInterval(pollRef.current!)
+          pollRef.current = null
+          setCompile({ phase: 'error', progress: 0, step: '', error: data.error ?? 'Compilation failed' })
+        } else {
+          setCompile(prev => ({
+            ...prev,
+            progress: data.progress ?? prev.progress,
+            step    : data.step    ?? prev.step,
+          }))
+          if (data.metrics) {
+            setMetrics(prev => [...prev, data.metrics!])
+          }
+        }
+      } catch {
+        // transient fetch error — keep polling
       }
-    }
-
-    es.onerror = () => {
-      es.close()
-      setCompile({ phase: 'error', progress: 0, step: '', error: 'Lost connection to server' })
-    }
+    }, 500)
   }
 
   return (
