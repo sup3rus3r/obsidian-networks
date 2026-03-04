@@ -27,6 +27,7 @@ Describe your problem, upload your data, and receive production-ready TensorFlow
 
 ---
 ![networks](docs/images/screen.png)
+![demo](docs/images/demo.png)
 ---
 
 

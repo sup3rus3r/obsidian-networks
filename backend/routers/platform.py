@@ -370,10 +370,36 @@ async def artifact_status(session_id: str):
         raise HTTPException(status_code=404, detail="Session not found or expired")
 
     output_dir = session.session_dir / "output"
+    images = sorted(
+        f.name for f in output_dir.iterdir()
+        if f.suffix.lower() in {".png", ".jpg", ".jpeg", ".svg"}
+    ) if output_dir.exists() else []
     return {
         "notebook": (output_dir / "training_notebook.ipynb").exists(),
         "models"  : sorted(f.name for f in output_dir.glob("*.keras")),
+        "images"  : images,
     }
+
+
+@router.get("/download/{session_id}/image/{filename}")
+async def download_image(session_id: str, filename: str):
+    """Serve a plot image from the session output directory."""
+    if "/" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if ext not in {"png", "jpg", "jpeg", "svg"}:
+        raise HTTPException(status_code=400, detail="Not an image file")
+
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or expired")
+
+    image_path = session.session_dir / "output" / filename
+    if not image_path.exists():
+        raise HTTPException(status_code=404, detail=f"{filename} not found")
+
+    media_map = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "svg": "image/svg+xml"}
+    return FileResponse(path=str(image_path), media_type=media_map[ext])
 
 
 @router.get("/progress/{task_id}")

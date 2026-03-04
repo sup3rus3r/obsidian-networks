@@ -28,6 +28,7 @@ import {
   Download, Play, XCircle, Loader2,
 } from 'lucide-react'
 import { TrainingChart, type EpochMetrics } from './training-chart'
+import { PlotGallery } from './plot-gallery'
 
 const TYPE_CONFIG: Record<string, { label: string; Icon: React.ElementType; color: string }> = {
   tabular     : { label: 'Tabular',      Icon: Table2,    color: 'text-[#39FF14] border-[#39FF14]/30 bg-[#39FF14]/10' },
@@ -154,7 +155,9 @@ function DownloadsSection({
   sessionId: string
   status   : ArtifactStatus
 }) {
-  if (!status.notebook && status.models.length === 0) {
+  const hasArtifacts = status.notebook || status.models.length > 0 || status.images.length > 0
+
+  if (!hasArtifacts) {
     return (
       <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-zinc-800 p-6 text-center">
         <div className="flex gap-3 text-[#39FF14]/30">
@@ -169,24 +172,29 @@ function DownloadsSection({
   }
 
   return (
-    <div className="space-y-2">
-      {status.notebook && (
-        <DownloadButton
-          icon={NotebookText}
-          label="Training Notebook"
-          sublabel="training_notebook.ipynb"
-          onClick={() => downloadNotebook(sessionId)}
-        />
+    <div className="space-y-3">
+      {(status.notebook || status.models.length > 0) && (
+        <div className="space-y-2">
+          {status.notebook && (
+            <DownloadButton
+              icon={NotebookText}
+              label="Training Notebook"
+              sublabel="training_notebook.ipynb"
+              onClick={() => downloadNotebook(sessionId)}
+            />
+          )}
+          {status.models.map(filename => (
+            <DownloadButton
+              key={filename}
+              icon={Brain}
+              label={filename.replace('.keras', '').replace(/_/g, ' ')}
+              sublabel={filename}
+              onClick={() => downloadModelFile(sessionId, filename)}
+            />
+          ))}
+        </div>
       )}
-      {status.models.map(filename => (
-        <DownloadButton
-          key={filename}
-          icon={Brain}
-          label={filename.replace('.keras', '').replace(/_/g, ' ')}
-          sublabel={filename}
-          onClick={() => downloadModelFile(sessionId, filename)}
-        />
-      ))}
+      <PlotGallery sessionId={sessionId} images={status.images} />
     </div>
   )
 }

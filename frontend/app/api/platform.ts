@@ -87,6 +87,7 @@ export const getDatasetAnalysis = async (sessionId: string): Promise<DatasetAnal
 export interface ArtifactStatus {
   notebook: boolean
   models  : string[]
+  images  : string[]
 }
 
 export const getArtifactStatus = async (sessionId: string): Promise<ArtifactStatus | null> => {

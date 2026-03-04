@@ -284,6 +284,7 @@ NEVER ask more than one question at a time.
 <constraints>
 - The dataset is ALWAYS available as "dataset.csv" (or "dataset.json" for JSON uploads) in the working directory — use this exact filename for DATA_PATH. NEVER use the original uploaded filename.
 - All model output files (.keras, .h5) MUST be saved inside the "output/" subdirectory — e.g. model.save("output/model.keras")
+- If the script generates any matplotlib/seaborn/plotly plots, ALWAYS save them to "output/" using plt.savefig("output/plot_name.png", dpi=150, bbox_inches="tight") and then call plt.close(). NEVER call plt.show(). Use descriptive filenames (e.g. "output/training_history.png", "output/feature_importance.png"). Add import matplotlib; matplotlib.use("Agg") at the top of any script that uses matplotlib to prevent display errors in headless environments.
 - Import Keras as: import keras (NEVER import tensorflow.keras or from tensorflow import keras)
 - Use the Functional API for all models — no Sequential for anything non-trivial
 - Preprocessing must use Keras layers (Normalization, StringLookup, TextVectorization) — never sklearn or pandas in training code
