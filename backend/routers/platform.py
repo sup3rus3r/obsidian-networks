@@ -99,6 +99,17 @@ def analyse_dataset(df: pd.DataFrame) -> dict:
             pass
     datetime_detected = len(datetime_cols) > 0
 
+    # For time series: infer the datetime column name and sampling frequency
+    datetime_col: str | None = datetime_cols[0] if datetime_cols else None
+    ts_frequency: str | None = None
+    if datetime_col:
+        try:
+            parsed = pd.to_datetime(df[datetime_col].dropna())
+            inferred = pd.infer_freq(parsed.sort_values().head(50))
+            ts_frequency = inferred
+        except Exception:
+            pass
+
     # Categorical vs numeric split
     cat_cols = list(df.select_dtypes(include=["object", "str", "category"]).columns)
     fraction_categorical = len(cat_cols) / n_features if n_features > 0 else 0.0
@@ -163,6 +174,8 @@ def analyse_dataset(df: pd.DataFrame) -> dict:
         "fraction_missing"      : round(fraction_missing, 3),
         "max_cardinality"       : max_cardinality,
         "datetime_detected"     : datetime_detected,
+        "datetime_col"          : datetime_col,
+        "ts_frequency"          : ts_frequency,
         "avg_string_length"     : round(avg_string_length, 1),
         "columns"               : list(df.columns),
         "dtypes"                : {col: str(dtype) for col, dtype in df.dtypes.items()},
@@ -270,11 +283,112 @@ async def get_analysis(session_id: str):
     return session.analysis
 
 
+_SETUP_NOTES: dict[str, str] = {
+    "cpu": """\
+## Environment Setup
+
+### Requirements
+- **Python 3.10 – 3.12** (TensorFlow does not support Python 3.13+ yet)
+- Recommended: create a fresh virtual environment before installing
+
+```bash
+# Create and activate a virtual environment (recommended)
+python -m venv .venv
+# Windows:
+.venv\\Scripts\\activate
+# macOS / Linux:
+source .venv/bin/activate
+```
+
+### Windows — Visual C++ Redistributable (required for TensorFlow)
+TensorFlow on Windows requires the **Microsoft Visual C++ Redistributable 2019+**.
+If you see a `DLL load failed` error when importing TensorFlow or Keras, install it from:
+👉 https://aka.ms/vs/17/release/vc_redist.x64.exe
+Then restart your terminal / Jupyter kernel and try again.
+
+### Install dependencies
+```bash
+pip install "tensorflow>=2.16" keras pandas scikit-learn matplotlib seaborn statsmodels
+```
+
+### Place your dataset
+Copy your `dataset.csv` file into the **same directory as this notebook** before running the training cells.
+""",
+
+    "nvidia_gpu": """\
+## Environment Setup
+
+### Requirements
+- **Python 3.10 – 3.12**
+- NVIDIA GPU with CUDA 12.x drivers installed
+- Recommended: create a fresh virtual environment
+
+```bash
+python -m venv .venv
+# Windows: .venv\\Scripts\\activate  |  Linux/macOS: source .venv/bin/activate
+```
+
+### Windows — Visual C++ Redistributable (required for TensorFlow)
+Install from: 👉 https://aka.ms/vs/17/release/vc_redist.x64.exe
+Restart your terminal after installing if you see `DLL load failed`.
+
+### Install dependencies (GPU)
+```bash
+pip install "tensorflow[and-cuda]>=2.16" keras pandas scikit-learn matplotlib seaborn statsmodels
+```
+
+### Verify GPU is detected
+```python
+import tensorflow as tf
+print(tf.config.list_physical_devices('GPU'))  # should list your GPU
+```
+
+### Place your dataset
+Copy `dataset.csv` into the **same directory as this notebook**.
+""",
+
+    "apple_silicon": """\
+## Environment Setup
+
+### Requirements
+- **Python 3.10 – 3.12** (install via [pyenv](https://github.com/pyenv/pyenv) or [Homebrew](https://brew.sh/))
+- macOS 12.0+ with Apple Silicon (M1/M2/M3)
+- Recommended: create a fresh virtual environment
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+### Install dependencies (Apple Silicon GPU via Metal)
+```bash
+pip install tensorflow-macos tensorflow-metal keras pandas scikit-learn matplotlib seaborn statsmodels
+```
+
+### Place your dataset
+Copy `dataset.csv` into the **same directory as this notebook**.
+""",
+
+    "google_colab": """\
+## Environment Setup
+
+Google Colab already includes TensorFlow. Just install the extra dependencies:
+
+```python
+!pip install -q keras pandas scikit-learn matplotlib seaborn statsmodels
+```
+
+### Upload your dataset
+Use the Colab file browser (left panel → Files icon) to upload `dataset.csv`,
+or mount Google Drive and point `DATA_PATH` to the correct path.
+""",
+}
+
 _PIP_INSTALL: dict[str, str] = {
-    "cpu"          : "!pip install tensorflow keras pandas scikit-learn matplotlib seaborn",
-    "nvidia_gpu"   : "!pip install 'tensorflow[and-cuda]' keras pandas scikit-learn matplotlib seaborn",
-    "apple_silicon": "!pip install tensorflow-metal tensorflow-macos keras pandas scikit-learn matplotlib seaborn",
-    "google_colab" : "# TensorFlow is pre-installed on Colab\n!pip install keras pandas scikit-learn matplotlib seaborn",
+    "cpu"          : '!pip install "tensorflow>=2.16" keras pandas scikit-learn matplotlib seaborn statsmodels',
+    "nvidia_gpu"   : '!pip install "tensorflow[and-cuda]>=2.16" keras pandas scikit-learn matplotlib seaborn statsmodels',
+    "apple_silicon": "!pip install tensorflow-macos tensorflow-metal keras pandas scikit-learn matplotlib seaborn statsmodels",
+    "google_colab" : "# TensorFlow is pre-installed on Colab\n!pip install -q keras pandas scikit-learn matplotlib seaborn statsmodels",
 }
 
 _SECTION_RE = re.compile(r"^# ── .+ ──+\s*$", re.MULTILINE)
@@ -303,10 +417,12 @@ def _md_cell(source: str) -> dict:
 
 def build_notebook(script: str, description: str, hardware: str = "cpu") -> dict:
     """Wrap a Python training script in a .ipynb structure."""
-    pip_line = _PIP_INSTALL.get(hardware, _PIP_INSTALL["cpu"])
+    pip_line   = _PIP_INSTALL.get(hardware, _PIP_INSTALL["cpu"])
+    setup_note = _SETUP_NOTES.get(hardware, _SETUP_NOTES["cpu"])
 
     cells: list[dict] = [
         _md_cell(f"# {description}\n\n*Generated by [Obsidian Networks](https://github.com)*"),
+        _md_cell(setup_note),
         _code_cell(pip_line),
     ]
 
@@ -365,6 +481,7 @@ async def create_notebook(session_id: str, payload: dict):
 @router.get("/status/{session_id}")
 async def artifact_status(session_id: str):
     """Return which downloadable artifacts are ready for this session."""
+    from celery.result import AsyncResult
     session = get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
@@ -374,10 +491,25 @@ async def artifact_status(session_id: str):
         f.name for f in output_dir.iterdir()
         if f.suffix.lower() in {".png", ".jpg", ".jpeg", ".svg"}
     ) if output_dir.exists() else []
+
+    # Pull epochs_run / epochs_max from the completed Celery task result
+    epochs_run: int | None = None
+    epochs_max: int | None = None
+    if session.task_id:
+        try:
+            result = AsyncResult(session.task_id, app=celery_app)
+            if result.state == "SUCCESS" and isinstance(result.result, dict):
+                epochs_run = result.result.get("epochs_run")
+                epochs_max = result.result.get("epochs_max")
+        except Exception:
+            pass
+
     return {
-        "notebook": (output_dir / "training_notebook.ipynb").exists(),
-        "models"  : sorted(f.name for f in output_dir.glob("*.keras")),
-        "images"  : images,
+        "notebook"  : (output_dir / "training_notebook.ipynb").exists(),
+        "models"    : sorted(f.name for f in output_dir.glob("*.keras")),
+        "images"    : images,
+        "epochs_run": epochs_run,
+        "epochs_max": epochs_max,
     }
 
 

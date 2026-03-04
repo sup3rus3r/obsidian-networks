@@ -51,7 +51,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: celery -A tasks.celery_app worker --loglevel=info --concurrency=2
+    command: celery -A tasks.celery_app worker --loglevel=info --pool=solo
     environment:
       - REDIS_URL=redis://redis:6379/0
       - SESSIONS_DIR=/sessions
@@ -61,6 +61,26 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    # ── Sandbox: restrict dangerous syscalls ──────────────────────────────────
+    security_opt:
+      - no-new-privileges:true
+      - seccomp:./worker-seccomp.json
+    # ── Sandbox: cap-drop removes Linux capabilities not needed for ML work ───
+    cap_drop:
+      - ALL
+    cap_add:
+      - DAC_OVERRIDE    # read/write session files owned by different uids
+      - SETUID          # celery worker forks
+      - SETGID
+      - CHOWN
+    # ── Resource limits: prevent runaway processes eating host resources ───────
+    ulimits:
+      nproc: 256        # max processes/threads the container can spawn
+      nofile:
+        soft: 1024
+        hard: 2048
+    mem_limit: 4g
+    memswap_limit: 4g
 
   redis:
     image: redis:7-alpine

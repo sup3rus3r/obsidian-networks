@@ -69,6 +69,8 @@ export interface DatasetAnalysis {
   fraction_missing      : number
   max_cardinality       : number
   datetime_detected     : boolean
+  datetime_col          : string | null
+  ts_frequency          : string | null
   avg_string_length     : number
   columns               : string[]
   dtypes                : Record<string, string>
@@ -85,9 +87,11 @@ export const getDatasetAnalysis = async (sessionId: string): Promise<DatasetAnal
 }
 
 export interface ArtifactStatus {
-  notebook: boolean
-  models  : string[]
-  images  : string[]
+  notebook   : boolean
+  models     : string[]
+  images     : string[]
+  epochs_run : number | null
+  epochs_max : number | null
 }
 
 export const getArtifactStatus = async (sessionId: string): Promise<ArtifactStatus | null> => {

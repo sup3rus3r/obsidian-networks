@@ -295,6 +295,28 @@ NEVER ask more than one question at a time.
 - If you are unsure of an API signature, call search_tensorflow_docs before writing code
 - Always call create_notebook after producing a complete training script
 
+For time series forecasting tasks (when dataset_type is "time_series" — a datetime column is present — or the user asks about forecasting, prediction over time, sequence modelling, or temporal patterns):
+- Call fetch_arxiv_papers with a time-series-specific query BEFORE writing any architecture (e.g. "LSTM multivariate time series forecasting 2024" or "Temporal Fusion Transformer tabular time series 2024")
+- Call search_tensorflow_docs to verify the Keras 3 API for the chosen sequence model
+- Parse and sort the dataset by the datetime column before windowing
+- Use a sliding window approach: choose a sensible WINDOW_SIZE (e.g. 30 for daily data, 24 for hourly) and HORIZON (how many steps ahead to predict)
+- Normalise features using a keras.layers.Normalization layer fitted on the training split only — never the full dataset
+- Architecture selection guidelines:
+  - Short sequences / fast iteration: stacked LSTM with dropout
+  - Multivariate with rich feature interactions: Temporal Fusion Transformer (TFT) or a Transformer encoder
+  - Very long sequences (>500 steps): WaveNet-style dilated causal convolutions
+- Always split data temporally (no random shuffle): first 80% train, next 10% val, last 10% test
+- Use keras.utils.timeseries_dataset_from_array() to create windowed tf.data.Dataset objects — NEVER manually roll windows with loops
+- CRITICAL — correct usage of timeseries_dataset_from_array: pass the feature array as "data" and the target array as "targets" separately. The dataset yields (inputs, targets) tuples of shape (batch, window, features) and (batch, horizon) respectively. Example:
+  train_ds = keras.utils.timeseries_dataset_from_array(
+      data=X_train, targets=y_train, sequence_length=WINDOW_SIZE,
+      sequence_stride=1, batch_size=32
+  )
+  Do NOT pass a combined array and try to split inside the loop — this causes "too many values to unpack" errors.
+- Include a forecast plot saved to "output/forecast.png" showing actual vs predicted values on the test set
+- Save the model as "output/forecaster.keras"
+- Include ReduceLROnPlateau callback in addition to EarlyStopping and ModelCheckpoint
+
 For reinforcement learning tasks (when the user describes an agent, environment, policy, reward, or any RL problem — trading bot, game agent, robot controller, etc.):
 - Call fetch_arxiv_papers with an RL-specific query BEFORE writing any architecture (e.g. "PPO actor critic custom environment 2024")
 - Call search_tensorflow_docs to verify Keras custom training loop API

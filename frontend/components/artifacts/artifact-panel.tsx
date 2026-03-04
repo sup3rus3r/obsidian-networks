@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, useMemo } from 'react'
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
 import { ENVIRONMENT_OPTIONS, type HardwareTier } from '@/lib/environment'
 import { useEnvironment } from '@/hooks/use-environment'
 import {
@@ -25,7 +25,7 @@ import {
   NotebookText, Brain, Monitor, Cpu,
   Table2, Clock, Type, ImageIcon,
   AlertTriangle, CheckCircle2,
-  Download, Play, XCircle, Loader2,
+  Download, Play, XCircle, Loader2, Zap,
 } from 'lucide-react'
 import { TrainingChart, type EpochMetrics } from './training-chart'
 import { PlotGallery } from './plot-gallery'
@@ -194,6 +194,20 @@ function DownloadsSection({
           ))}
         </div>
       )}
+      {status.epochs_run != null && (
+        <div className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2">
+          <Zap className="h-3.5 w-3.5 shrink-0 text-[#39FF14]" />
+          <span className="text-xs text-zinc-400">Trained for</span>
+          <span className="font-mono text-xs font-medium text-zinc-200">
+            {status.epochs_run} epoch{status.epochs_run !== 1 ? 's' : ''}
+          </span>
+          {status.epochs_max != null && status.epochs_run < status.epochs_max && (
+            <span className="ml-auto text-[10px] text-zinc-600">
+              early stopped / {status.epochs_max} max
+            </span>
+          )}
+        </div>
+      )}
       <PlotGallery sessionId={sessionId} images={status.images} />
     </div>
   )
@@ -323,9 +337,11 @@ function CompileRunningState({
 function CompileSection({
   sessionId,
   status,
+  onCompileSuccess,
 }: {
-  sessionId: string
-  status   : ArtifactStatus
+  sessionId        : string
+  status           : ArtifactStatus
+  onCompileSuccess : () => void
 }) {
   const [compile, setCompile] = useState<CompileState>({
     phase: 'idle', progress: 0, step: '', error: null,
@@ -367,6 +383,7 @@ function CompileSection({
       if (data.state === 'SUCCESS') {
         es.close()
         setCompile({ phase: 'idle', progress: 100, step: 'Done', error: null })
+        onCompileSuccess()
       } else if (data.state === 'FAILURE') {
         es.close()
         setCompile({ phase: 'error', progress: 0, step: '', error: data.error ?? 'Compilation failed' })
@@ -491,9 +508,14 @@ interface ArtifactPanelProps {
 const POLL_INTERVAL = 4_000   // ms between status checks
 
 export function ArtifactPanel({ sessionId }: ArtifactPanelProps) {
-  const [analysis, setAnalysis]     = useState<DatasetAnalysis | null>(null)
-  const [status,   setStatus]       = useState<ArtifactStatus>({ notebook: false, models: [], images: [] })
-  const pollRef                     = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [analysis,      setAnalysis]      = useState<DatasetAnalysis | null>(null)
+  const [status,        setStatus]        = useState<ArtifactStatus>({ notebook: false, models: [], images: [], epochs_run: null, epochs_max: null })
+  const [awaitingPlots, setAwaitingPlots] = useState(false)
+  const pollRef                           = useRef<ReturnType<typeof setInterval> | null>(null)
+  const fastPollRef                       = useRef<ReturnType<typeof setInterval> | null>(null)
+  const fastPollStart                     = useRef<number>(0)
+  const FAST_POLL_MS                      = 500
+  const FAST_POLL_TIMEOUT_MS              = 30_000  // stop fast-polling after 30s
 
   useEffect(() => {
     if (!sessionId) return
@@ -522,6 +544,30 @@ export function ArtifactPanel({ sessionId }: ArtifactPanelProps) {
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [sessionId])
 
+  // Called by CompileSection when the SSE stream reports SUCCESS
+  const onCompileSuccess = useCallback(() => {
+    if (!sessionId) return
+    setAwaitingPlots(true)
+    fastPollStart.current = Date.now()
+
+    const tick = async () => {
+      const s = await getArtifactStatus(sessionId)
+      if (!s) return
+      setStatus(s)
+      const elapsed = Date.now() - fastPollStart.current
+      // Stop fast-polling once we have images OR after timeout
+      if (s.images.length > 0 || elapsed > FAST_POLL_TIMEOUT_MS) {
+        clearInterval(fastPollRef.current!)
+        fastPollRef.current = null
+        setAwaitingPlots(false)
+      }
+    }
+
+    fastPollRef.current = setInterval(tick, FAST_POLL_MS)
+  }, [sessionId])
+
+  useEffect(() => () => { if (fastPollRef.current) clearInterval(fastPollRef.current) }, [])
+
   return (
     <div className="flex h-full flex-col gap-5 overflow-y-auto bg-zinc-950 p-5">
 
@@ -540,9 +586,15 @@ export function ArtifactPanel({ sessionId }: ArtifactPanelProps) {
 
       {/* Downloads */}
       <div>
-        <p className="mb-3 text-xs font-medium uppercase tracking-wider text-zinc-500">
-          Downloads
-        </p>
+        <div className="mb-3 flex items-center gap-2">
+          <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">Downloads</p>
+          {awaitingPlots && (
+            <div className="flex items-center gap-1.5 ml-auto">
+              <Loader2 className="h-3 w-3 animate-spin text-zinc-600" />
+              <span className="text-[10px] text-zinc-600">Saving plots…</span>
+            </div>
+          )}
+        </div>
         {sessionId
           ? <DownloadsSection sessionId={sessionId} status={status} />
           : (
@@ -561,7 +613,7 @@ export function ArtifactPanel({ sessionId }: ArtifactPanelProps) {
 
       {/* Compile & Train — shown after notebook is ready, before model exists */}
       {sessionId && (
-        <CompileSection sessionId={sessionId} status={status} />
+        <CompileSection sessionId={sessionId} status={status} onCompileSuccess={onCompileSuccess} />
       )}
 
       <Separator className="bg-zinc-800" />

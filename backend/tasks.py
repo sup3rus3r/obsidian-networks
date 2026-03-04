@@ -2,6 +2,7 @@ import ast
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -15,8 +16,8 @@ SESSIONS_DIR = Path(os.environ.get("SESSIONS_DIR", "/sessions"))
 ALLOWED_IMPORTS = {
     "tensorflow", "keras", "numpy", "pandas",
     "sklearn", "scipy", "gymnasium", "gym",
-    "matplotlib", "seaborn", "plotly",
-    "os", "pathlib", "json", "math", "collections", "typing", "functools",
+    "matplotlib", "seaborn", "plotly", "statsmodels",
+    "os", "pathlib", "json", "math", "collections", "typing", "functools", "itertools", "datetime",
 }
 # Blocked as standalone function calls only (e.g. eval("..."), exec("..."))
 # NOT as method calls — model.compile() is legitimate Keras API
@@ -117,6 +118,17 @@ def run_compilation_task(self, session_id: str) -> dict:
         "PYTHONPATH"      : "",
     }
 
+    def _apply_limits():
+        """Set per-process resource limits (Linux only)."""
+        if sys.platform == "linux":
+            import resource
+            # Max CPU time: 360s (hard kill after 6 min — soft timeout is 5 min)
+            resource.setrlimit(resource.RLIMIT_CPU, (360, 400))
+            # Max output file size: 2 GB (prevents disk-fill attacks)
+            resource.setrlimit(resource.RLIMIT_FSIZE, (2 * 1024 ** 3, 2 * 1024 ** 3))
+            # Max address space: 6 GB (TF needs headroom but cap runaway allocations)
+            resource.setrlimit(resource.RLIMIT_AS, (6 * 1024 ** 3, 6 * 1024 ** 3))
+
     try:
         proc = subprocess.Popen(
             ["python3", "-u", str(script_path)],
@@ -125,6 +137,7 @@ def run_compilation_task(self, session_id: str) -> dict:
             text=True,
             cwd=str(session_dir),
             env=safe_env,
+            preexec_fn=_apply_limits if sys.platform == "linux" else None,
         )
     except Exception as e:
         raise RuntimeError(f"Failed to start subprocess: {e}") from e
@@ -196,7 +209,9 @@ def run_compilation_task(self, session_id: str) -> dict:
         raise FileNotFoundError("No .keras files produced — ensure the script calls model.save('<name>.keras')")
 
     return {
-        "status" : "success",
-        "models" : [f.name for f in keras_files],
-        "sizes"  : {f.name: f.stat().st_size for f in keras_files},
+        "status"      : "success",
+        "models"      : [f.name for f in keras_files],
+        "sizes"       : {f.name: f.stat().st_size for f in keras_files},
+        "epochs_run"  : current_epoch,
+        "epochs_max"  : total_epochs,
     }

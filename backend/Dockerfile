@@ -33,7 +33,8 @@ RUN pip install --no-cache-dir --prefix=/install \
     "feedparser>=6.0.0" \
     "nbformat>=5.10.0" \
     "matplotlib>=3.8.0" \
-    "seaborn>=0.13.0"
+    "seaborn>=0.13.0" \
+    "statsmodels>=0.14.0"
 
 # ── Stage 2: runtime image ────────────────────────────────────────────────────
 FROM python:3.11-slim AS runtime
