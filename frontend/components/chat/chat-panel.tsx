@@ -123,6 +123,8 @@ function MessageBubble({ msg, isLast, isStreaming }: MessageBubbleProps) {
 
   if (isUser) {
     const dispText = getDisplayText(msg)
+    // Silent messages (e.g. injected compile errors) are not shown in the chat UI
+    if (dispText.startsWith('[__silent__]')) return null
     return (
       <div className="group flex items-start gap-3 px-4 py-3 flex-row-reverse">
         <Avatar className="h-7 w-7 shrink-0 mt-0.5">
@@ -236,7 +238,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   useImperativeHandle(ref, () => ({
     sendError: (error: string) => {
       sendMessage({
-        text: `The training script failed to compile with the following error:\n\n${error}\n\nPlease fix the script and call create_notebook again with the corrected version.`,
+        text: `[__silent__]The training script failed to compile with the following error:\n\n${error}\n\nPlease fix the script and call create_notebook again with the corrected version.`,
       })
     },
   }), [sendMessage])

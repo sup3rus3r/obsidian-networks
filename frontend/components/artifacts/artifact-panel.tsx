@@ -9,6 +9,7 @@ import {
   getPlatformLimits,
   downloadNotebook,
   downloadModelFile,
+  downloadDatasetFile,
   triggerCompile,
   type DatasetAnalysis,
   type ArtifactStatus,
@@ -27,7 +28,7 @@ import {
   NotebookText, Brain, Monitor, Cpu,
   Table2, Clock, Type, ImageIcon,
   AlertTriangle, CheckCircle2,
-  Download, Play, XCircle, Loader2, Zap, Info,
+  Download, Play, XCircle, Loader2, Zap, Info, FileText,
 } from 'lucide-react'
 import { TrainingChart, type EpochMetrics } from './training-chart'
 import { PlotGallery } from './plot-gallery'
@@ -157,7 +158,7 @@ function DownloadsSection({
   sessionId: string
   status   : ArtifactStatus
 }) {
-  const hasArtifacts = status.notebook || status.models.length > 0 || status.images.length > 0
+  const hasArtifacts = status.notebook || status.models.length > 0 || status.images.length > 0 || status.datasets.length > 0
 
   if (!hasArtifacts) {
     return (
@@ -192,6 +193,15 @@ function DownloadsSection({
               label={filename.replace('.keras', '').replace(/_/g, ' ')}
               sublabel={filename}
               onClick={() => downloadModelFile(sessionId, filename)}
+            />
+          ))}
+          {status.datasets.map(filename => (
+            <DownloadButton
+              key={filename}
+              icon={FileText}
+              label={filename.replace('.csv', '').replace(/_/g, ' ')}
+              sublabel={filename}
+              onClick={() => downloadDatasetFile(sessionId, filename)}
             />
           ))}
         </div>
@@ -415,9 +425,11 @@ function CompileSection({
   // Clean up poll on unmount
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
 
-  // When the notebook is re-saved (mtime advances), reset error state so the
-  // compile button reappears — the model has fixed the script and saved a new one.
-  const prevMtimeRef = useRef<number | null>(null)
+  // When the notebook is re-saved (mtime advances):
+  //   - reset error state so compile button reappears
+  //   - auto-trigger compile only if we were in error state (model fixed the script after a failure)
+  const prevMtimeRef    = useRef<number | null>(null)
+  const startCompileRef = useRef<(() => Promise<void>) | null>(null)
   useEffect(() => {
     const mtime = status.notebook_mtime
     if (
@@ -425,14 +437,24 @@ function CompileSection({
       prevMtimeRef.current !== null &&
       mtime > prevMtimeRef.current
     ) {
-      setCompile(c => c.phase === 'error' ? { phase: 'idle', progress: 0, step: '', error: null } : c)
+      setCompile(c => {
+        if (c.phase === 'error') {
+          // Auto-recompile after the model fixed a failing script
+          setTimeout(() => startCompileRef.current?.(), 0)
+          return { phase: 'idle', progress: 0, step: '', error: null }
+        }
+        return c
+      })
     }
     prevMtimeRef.current = mtime ?? null
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status.notebook_mtime])
 
   // Hide if: no notebook yet, OR (model exists AND task is not actively running/errored)
   if (!status.notebook) return null
-  if (status.models.length > 0 && compile.phase === 'idle') return null
+  if ((status.models.length > 0 || status.datasets.length > 0) && compile.phase === 'idle') return null
+
+  const taskIdRef = useRef<string | null>(null)
 
   const startCompile = async () => {
     setCompile({ phase: 'running', progress: 0, step: 'Queuing…', error: null })
@@ -443,6 +465,8 @@ function CompileSection({
       setCompile({ phase: 'error', progress: 0, step: '', error: 'Failed to start compilation' })
       return
     }
+
+    taskIdRef.current = result.task_id
 
     // Poll the one-shot JSON endpoint — EventSource doesn't work through Next.js rewrites
     pollRef.current = setInterval(async () => {
@@ -456,11 +480,13 @@ function CompileSection({
         if (data.state === 'SUCCESS') {
           clearInterval(pollRef.current!)
           pollRef.current = null
+          taskIdRef.current = null
           setCompile({ phase: 'idle', progress: 100, step: 'Done', error: null })
           onCompileSuccess()
         } else if (data.state === 'FAILURE') {
           clearInterval(pollRef.current!)
           pollRef.current = null
+          taskIdRef.current = null
           const errMsg = data.error ?? 'Compilation failed'
           setCompile({ phase: 'error', progress: 0, step: '', error: errMsg })
           onCompileError(errMsg)
@@ -478,6 +504,19 @@ function CompileSection({
         // transient fetch error — keep polling
       }
     }, 500)
+  }
+
+  // Wire ref for auto-compile trigger from mtime watcher
+  startCompileRef.current = startCompile
+
+  const stopCompile = async () => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+    const tid = taskIdRef.current
+    taskIdRef.current = null
+    setCompile({ phase: 'idle', progress: 0, step: '', error: null })
+    if (tid) {
+      try { await fetch(`/api/platform/revoke/${tid}`, { method: 'POST' }) } catch { /* best-effort */ }
+    }
   }
 
   return (
@@ -500,7 +539,16 @@ function CompileSection({
         )}
 
         {compile.phase === 'running' && (
-          <CompileRunningState compile={compile} metrics={metrics} />
+          <div className="space-y-2">
+            <CompileRunningState compile={compile} metrics={metrics} />
+            <button
+              onClick={stopCompile}
+              className="cursor-pointer flex w-full items-center justify-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-400 transition-colors hover:border-red-800 hover:bg-red-950/30 hover:text-red-400"
+            >
+              <XCircle className="h-3.5 w-3.5" />
+              Stop
+            </button>
+          </div>
         )}
 
         {compile.phase === 'error' && (
@@ -585,7 +633,7 @@ const POLL_INTERVAL = 4_000   // ms between status checks
 
 export function ArtifactPanel({ sessionId, onCompileError }: ArtifactPanelProps) {
   const [analysis,      setAnalysis]      = useState<DatasetAnalysis | null>(null)
-  const [status,        setStatus]        = useState<ArtifactStatus>({ notebook: false, notebook_mtime: null, models: [], images: [], epochs_run: null, epochs_max: null })
+  const [status,        setStatus]        = useState<ArtifactStatus>({ notebook: false, notebook_mtime: null, models: [], images: [], datasets: [], epochs_run: null, epochs_max: null })
   const [limits,        setLimits]        = useState<PlatformLimits | null>(null)
   const [awaitingPlots, setAwaitingPlots] = useState(false)
   const pollRef                           = useRef<ReturnType<typeof setInterval> | null>(null)

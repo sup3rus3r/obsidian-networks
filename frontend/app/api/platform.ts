@@ -110,6 +110,7 @@ export interface ArtifactStatus {
   notebook_mtime  : number | null
   models          : string[]
   images          : string[]
+  datasets        : string[]
   epochs_run      : number | null
   epochs_max      : number | null
 }
@@ -135,6 +136,9 @@ export const downloadFile = (url: string, filename: string) => {
 
 export const downloadModelFile = (sessionId: string, filename: string) =>
   downloadFile(AppRoutes.DownloadModelFile(sessionId, filename), filename)
+
+export const downloadDatasetFile = (sessionId: string, filename: string) =>
+  downloadFile(AppRoutes.DownloadDatasetFile(sessionId, filename), filename)
 
 export const downloadNotebook = (sessionId: string) =>
   downloadFile(AppRoutes.DownloadNotebook(sessionId), 'training_notebook.ipynb')

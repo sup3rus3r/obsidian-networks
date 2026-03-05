@@ -639,11 +639,16 @@ async def artifact_status(session_id: str):
             pass
 
     nb_path = output_dir / "training_notebook.ipynb"
+    datasets = sorted(
+        f.name for f in output_dir.iterdir()
+        if f.suffix.lower() == ".csv"
+    ) if output_dir.exists() else []
     return {
         "notebook"      : nb_path.exists(),
         "notebook_mtime": nb_path.stat().st_mtime if nb_path.exists() else None,
         "models"        : sorted(f.name for f in output_dir.glob("*.keras")),
         "images"        : images,
+        "datasets"      : datasets,
         "epochs_run"    : epochs_run,
         "epochs_max"    : epochs_max,
     }
@@ -668,6 +673,17 @@ async def download_image(session_id: str, filename: str):
 
     media_map = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "svg": "image/svg+xml"}
     return FileResponse(path=str(image_path), media_type=media_map[ext])
+
+
+@router.post("/revoke/{task_id}")
+async def revoke_task(task_id: str):
+    """Revoke a running Celery task (best-effort — kills the worker process if possible)."""
+    from celery.result import AsyncResult
+    try:
+        AsyncResult(task_id, app=celery_app).revoke(terminate=True, signal="SIGTERM")
+    except Exception:
+        pass
+    return {"ok": True}
 
 
 @router.get("/progress-once/{task_id}")
@@ -746,6 +762,27 @@ async def download_model(session_id: str, filename: str):
         path      =str(model_path),
         filename  =filename,
         media_type="application/octet-stream",
+    )
+
+
+@router.get("/download/{session_id}/dataset/{filename}")
+async def download_dataset_file(session_id: str, filename: str):
+    """Download a derived CSV dataset file from the session output directory."""
+    if not filename.endswith(".csv") or "/" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename — must be a .csv file")
+
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or expired")
+
+    dataset_path = session.session_dir / "output" / filename
+    if not dataset_path.exists():
+        raise HTTPException(status_code=404, detail=f"{filename} not found in session output")
+
+    return FileResponse(
+        path      =str(dataset_path),
+        filename  =filename,
+        media_type="text/csv",
     )
 
 
