@@ -2,9 +2,19 @@
 
 <img src="frontend/public/logo.svg" alt="Obsidian Networks" width="280" />
 
-### Open-Source AI-Powered ML Scaffolding Platform
+---
 
-Describe your problem, upload your data, and receive production-ready TensorFlow/Keras models — researched, written, compiled, and downloaded in one session. No ML expertise required.
+## What is Obsidian Networks?
+
+**Obsidian Networks** is an AI-powered platform that generates **complete machine learning pipelines** from a simple description of your problem.
+
+Instead of manually researching architectures, writing training code, debugging errors, and configuring environments, the platform automates the entire workflow.
+
+Upload your dataset → describe your goal → receive a fully functional training script and trained model.
+
+The generated code follows modern TensorFlow/Keras practices and is designed to be **production-ready, transparent, and editable**.
+
+---
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/sup3rus3r/obsidian-networks?style=social)](https://github.com/sup3rus3r/obsidian-networks/stargazers)
