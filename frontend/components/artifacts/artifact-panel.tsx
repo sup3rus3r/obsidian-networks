@@ -430,6 +430,7 @@ function CompileSection({
   //   - auto-trigger compile only if we were in error state (model fixed the script after a failure)
   const prevMtimeRef    = useRef<number | null>(null)
   const startCompileRef = useRef<(() => Promise<void>) | null>(null)
+  const taskIdRef       = useRef<string | null>(null)
   useEffect(() => {
     const mtime = status.notebook_mtime
     if (
@@ -453,8 +454,6 @@ function CompileSection({
   // Hide if: no notebook yet, OR (model exists AND task is not actively running/errored)
   if (!status.notebook) return null
   if ((status.models.length > 0 || status.datasets.length > 0) && compile.phase === 'idle') return null
-
-  const taskIdRef = useRef<string | null>(null)
 
   const startCompile = async () => {
     setCompile({ phase: 'running', progress: 0, step: 'Queuing…', error: null })
