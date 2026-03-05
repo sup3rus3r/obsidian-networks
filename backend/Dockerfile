@@ -48,7 +48,8 @@ RUN pip install --no-cache-dir --prefix=/install \
     "joblib>=1.4.0" \
     "imageio>=2.34.0" \
     "Pillow>=10.0.0" \
-    "more-itertools>=10.0.0"
+    "more-itertools>=10.0.0" \
+    "gymnasium>=0.29.0"
 
 # ── Stage 2: runtime image ────────────────────────────────────────────────────
 FROM python:3.11-slim AS runtime

@@ -350,8 +350,11 @@ def patch_keras_mistakes(code: str) -> str:
     )
 
     # ── 5. bare `keras.` attribute access → `tensorflow.keras.` ──────────────
-    # Only rewrite `keras.` not already preceded by `tensorflow.`
-    code = re.sub(r'(?<!tensorflow\.)(?<!\w)keras\.', 'tensorflow.keras.', code)
+    # Only rewrite `keras.` not already preceded by `tensorflow.` or `.` (alias like tf.keras.)
+    code = re.sub(r'(?<!tensorflow\.)(?<!\w)(?<!\.)keras\.', 'tensorflow.keras.', code)
+
+    # ── 5a. fix double-namespace from alias scripts: `tf.tensorflow.keras.` → `tf.keras.`
+    code = re.sub(r'\btf\.tensorflow\.keras\.', 'tf.keras.', code)
 
     # ── 5b. ensure `import tensorflow` is present when tensorflow.keras.* is used
     # After the rewrites above, the script may reference `tensorflow.keras.*` but
@@ -489,6 +492,74 @@ except Exception as _plot_err:
 '''
 
 
+def patch_tf_float_cast(code: str) -> str:
+    """Fix float64/float32 dtype mismatches in TF operations.
+
+    Weak models compute RL advantages/returns/rewards in numpy (float64) then
+    multiply or add them to TF tensors (float32), causing InvalidArgumentError.
+
+    Strategy: inject a cast helper `_to_f32` and wrap common RL variable names
+    (advantages, returns, rewards, targets) at the point they are passed to TF
+    operations by patching `tf.cast` wrap around numpy-to-tensor conversions and
+    `tf.constant` / `tf.convert_to_tensor` calls for those variables.
+
+    A simpler and more reliable approach: after every numpy array is used in a
+    `tf.GradientTape` block, the model ops expect float32.  We insert a small
+    helper and patch the most common patterns:
+      - `tf.constant(var)` / `tf.convert_to_tensor(var)` for known RL names
+      - bare variable references multiplied with TF tensors (ratio * adv_batch etc.)
+    """
+    # Only act on scripts that import tensorflow
+    if 'import tensorflow' not in code and 'import tf' not in code:
+        return code
+
+    _HELPER = (
+        '\ndef _obsidian_f32(x):\n'
+        '    import numpy as _np\n'
+        '    import tensorflow as _tf\n'
+        '    if isinstance(x, _np.ndarray): return x.astype(_np.float32)\n'
+        '    try: return _tf.cast(x, _tf.float32)\n'
+        '    except Exception: return x\n\n'
+    )
+
+    if '_obsidian_f32' in code:
+        return code  # already patched
+
+    # Common RL variable name patterns that are typically float64 numpy arrays
+    _RL_VARS = r'(?:advantages?|returns?|rewards?|adv_batch|ret_batch|reward_batch|targets?|discounted_rewards?|gae|td_targets?)'
+
+    # Patch tf.convert_to_tensor(rl_var) / tf.constant(rl_var)
+    code = re.sub(
+        r'\btf\.(convert_to_tensor|constant)\s*\(\s*(' + _RL_VARS + r')\s*\)',
+        r'tf.\1(_obsidian_f32(\2))',
+        code,
+    )
+
+    # Patch bare rl_var used in arithmetic with a tf tensor: `ratio * adv_batch`
+    # → `ratio * _obsidian_f32(adv_batch)` and similar for +, -, /
+    code = re.sub(
+        r'(?<!\w)(' + _RL_VARS + r')(?=\s*[\*\+\-\/])',
+        r'_obsidian_f32(\1)',
+        code,
+    )
+    code = re.sub(
+        r'(?<=[\*\+\-\/]\s)(' + _RL_VARS + r')(?!\w)',
+        r'_obsidian_f32(\1)',
+        code,
+    )
+
+    # Inject helper after imports
+    lines = code.splitlines(keepends=True)
+    insert_idx = 0
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith('import ') or stripped.startswith('from '):
+            insert_idx = i + 1
+    code = ''.join(lines[:insert_idx]) + _HELPER + ''.join(lines[insert_idx:])
+
+    return code
+
+
 def patch_canonical_plots(code: str) -> str:
     """Remove all plt.savefig calls from the generated script and append
     a canonical, deterministic plot block at the end.
@@ -606,6 +677,7 @@ def run_compilation_task(self, session_id: str) -> dict:
     code = patch_categorical_encoding(code)
     code = patch_safe_concatenate(code)
     code = patch_normalizer_name(code)
+    code = patch_tf_float_cast(code)
     code = patch_canonical_plots(code)
     script_path.write_text(code)  # overwrite so subprocess runs the patched version
 
