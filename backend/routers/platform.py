@@ -544,8 +544,15 @@ async def create_notebook(session_id: str, payload: dict):
     description = payload.get("description", "Training Notebook")
     hardware    = (session.environment or {}).get("hardware", "cpu") if session.environment else "cpu"
 
+    script_path = session.session_dir / "generated_script.py"
+
+    # If script is omitted (or empty), read the already-saved script written by edit_script.
+    # This is the preferred flow: write via edit_script first, then call create_notebook with
+    # just a description to avoid passing large scripts through tool JSON arguments.
     if not script.strip():
-        raise HTTPException(status_code=400, detail="Script cannot be empty")
+        if not script_path.exists():
+            raise HTTPException(status_code=400, detail="No script provided and no saved script found. Use edit_script with old_str='__REPLACE_ALL__' to save the script first, then call create_notebook.")
+        script = script_path.read_text()
 
     # Apply all worker patches so the notebook matches what actually ran
     from tasks import (
@@ -565,6 +572,9 @@ async def create_notebook(session_id: str, payload: dict):
     script = patch_normalizer_name(script)
     script = patch_tf_float_cast(script)
 
+    # Always save patched script so edit_script can work on it even if validation fails.
+    script_path.write_text(script)
+
     # Validate — return errors as 422 so the AI tool caller sees them and retries
     validation_errors = _validate_script(script)
     if validation_errors:
@@ -572,7 +582,7 @@ async def create_notebook(session_id: str, payload: dict):
         raise HTTPException(
             status_code=422,
             detail={
-                "message": "Script validation failed. Fix the errors and call create_notebook again.",
+                "message": "Script saved but validation failed. Use read_script to inspect it, then edit_script (or edit_script with old_str='__REPLACE_ALL__' for syntax errors) to fix the issues. Then call create_notebook again.",
                 "errors" : validation_errors,
             },
         )
@@ -580,8 +590,6 @@ async def create_notebook(session_id: str, payload: dict):
     nb   = build_notebook(script, description, hardware)
     path = session.session_dir / "output" / "training_notebook.ipynb"
     path.write_text(json.dumps(nb, indent=2))
-
-    (session.session_dir / "generated_script.py").write_text(script)
 
     output_dir = session.session_dir / "output"
     for stale in output_dir.glob("*.keras"):

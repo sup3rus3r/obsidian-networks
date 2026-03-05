@@ -301,16 +301,17 @@ function createNotebookTool(sessionId: string | null) {
 
   return tool({
     description:
-      'Save the final training script as a downloadable Jupyter notebook (.ipynb). ' +
-      'Call this ONCE after you have produced the complete, runnable training script. ' +
+      'Validate and save the current script as a downloadable Jupyter notebook (.ipynb). ' +
+      'IMPORTANT: Do NOT pass the script here. Instead, first write the script using ' +
+      'edit_script(old_str="__REPLACE_ALL__", new_str=<full script>), then call create_notebook ' +
+      'with only a description. The backend reads the already-saved script automatically. ' +
       'The notebook will appear in the Downloads panel for the user to download.',
     inputSchema: z.object({
-      script     : z.string().describe('The complete Python training script to save as a notebook'),
       description: z.string().describe(
         'One-line title for the notebook, e.g. "House Price Regression — Wide & Deep"'
       ),
     }),
-    execute: async (input: { script: string; description: string }) => {
+    execute: async (input: { description: string }) => {
       if (!sessionId) return { error: 'No active session — cannot save notebook' }
 
       attempts++
@@ -329,7 +330,7 @@ function createNotebookTool(sessionId: string | null) {
         const res = await fetch(`${apiBase}/platform/notebook/${sessionId}`, {
           method : 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body   : JSON.stringify({ script: input.script, description: input.description }),
+          body   : JSON.stringify({ description: input.description }),
           signal : AbortSignal.timeout(15_000),
         })
         if (!res.ok) {
@@ -373,7 +374,7 @@ Script development (use these to iteratively build and verify the script):
 - run_code: Execute a Python snippet in the session directory (has access to dataset.csv). Use to inspect data, test logic, verify shapes before writing the full script.
 - read_script: Read the current generated_script.py with line numbers.
 - edit_script: Replace an exact string in the script (str-replace). Use to fix specific errors without rewriting from scratch.
-- create_notebook: Save the final script as a downloadable .ipynb. Only call this once the script is verified working.
+- create_notebook: Validate and save the current script as a downloadable .ipynb. Pass ONLY a description — the backend reads the script written by edit_script automatically. Always call edit_script(__REPLACE_ALL__) BEFORE create_notebook.
 </context>
 
 <behaviour>
@@ -396,14 +397,14 @@ CRITICAL — follow this decision tree on EVERY user message:
    → STEP 5: Analyse the schema: task type, target column, class balance, preprocessing needs
    → STEP 6: Use run_code to verify the dataset loads correctly and inspect columns/shapes:
        run_code("import pandas as pd; df = pd.read_csv('dataset.csv'); print(df.shape); print(df.dtypes); print(df.head(2))")
-   → STEP 7: Write the complete script and pass it DIRECTLY to create_notebook — do NOT print or show the script in your chat reply
-   → STEP 8: If create_notebook returns validation errors, use read_script to read the script, then edit_script to fix the specific error. For a SyntaxError or widespread indentation issue, use edit_script with old_str="__REPLACE_ALL__" and new_str=<corrected full script>. Call create_notebook again. Repeat until it succeeds.
+   → STEP 7: Write the complete script by calling edit_script(old_str="__REPLACE_ALL__", new_str=<full script>). Then call create_notebook with ONLY a description (no script argument). Do NOT print or show the script in your chat reply.
+   → STEP 8: If create_notebook returns validation errors, use read_script to read the current script. Fix errors with edit_script (targeted str-replace for small fixes, or old_str="__REPLACE_ALL__" to rewrite the whole script). Then call create_notebook (description only) again. Repeat until it succeeds.
    → STEP 9: After create_notebook succeeds, write a SHORT chat reply (3–6 bullet points max) summarising: architecture chosen, why (citing specific papers), key hyperparameters, and what the user should expect. No code in the reply.
 
 3. USER ASKS TO CHANGE/IMPROVE THE MODEL?
    → Call fetch_arxiv_papers with a query specific to the requested change before modifying the script.
-   → Use read_script to read the current script, then edit_script to apply targeted changes. Do NOT rewrite the whole script.
-   → Call create_notebook to save the updated script.
+   → Use read_script to read the current script, then edit_script to apply targeted changes. Do NOT rewrite the whole script unless necessary.
+   → Call create_notebook with ONLY a description (no script argument) to save the updated script.
    → Reply with 2–3 sentences describing what changed and which paper motivated it. No code in the reply.
 
 4. GENERAL KERAS/TF QUESTION (no dataset, no code request)?
