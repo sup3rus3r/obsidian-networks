@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Install all Python deps (pinned via pip, independent of uv.lock)
+# Install all Python deps
 RUN pip install --no-cache-dir --prefix=/install \
     "fastapi[standard]>=0.128.0" \
     "sqlalchemy>=2.0.0" \
@@ -25,16 +25,30 @@ RUN pip install --no-cache-dir --prefix=/install \
     "aioredis>=2.0.1" \
     "python-magic>=0.4.27" \
     "pandas>=2.0.0" \
-    "numpy>=1.26.0" \
+    "numpy>=1.26.0,<2.0.0" \
     "scikit-learn>=1.4.0" \
-    "tensorflow-cpu>=2.16.1" \
+    "scipy>=1.13.0" \
+    "statsmodels>=0.14.0" \
+    "tensorflow-cpu>=2.16.1,<2.17.0" \
     "httpx>=0.27.0" \
     "beautifulsoup4>=4.12.0" \
     "feedparser>=6.0.0" \
     "nbformat>=5.10.0" \
     "matplotlib>=3.8.0" \
     "seaborn>=0.13.0" \
-    "statsmodels>=0.14.0"
+    "xgboost>=2.0.0" \
+    "lightgbm>=4.3.0" \
+    "catboost>=1.2.0" \
+    "shap>=0.45.0" \
+    "optuna>=3.6.0" \
+    "h5py>=3.11.0" \
+    "pyarrow>=16.0.0" \
+    "openpyxl>=3.1.0" \
+    "tqdm>=4.66.0" \
+    "joblib>=1.4.0" \
+    "imageio>=2.34.0" \
+    "Pillow>=10.0.0" \
+    "more-itertools>=10.0.0"
 
 # ── Stage 2: runtime image ────────────────────────────────────────────────────
 FROM python:3.11-slim AS runtime

@@ -2,8 +2,8 @@
 
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, isTextUIPart, type UIMessage } from 'ai'
-import { useEffect, useRef, useCallback, useState, useMemo } from 'react'
-import { Copy, Check, Paperclip, Trash2 } from 'lucide-react'
+import { useEffect, useRef, useCallback, useState, useMemo, forwardRef, useImperativeHandle } from 'react'
+import { Copy, Check, Paperclip, Trash2, ChevronDown, Brain } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -82,6 +82,36 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
+function ThinkingBlock({ text, isStreaming }: { text: string; isStreaming: boolean }) {
+  const [open, setOpen] = useState(isStreaming)
+
+  // Auto-open while streaming, auto-close when done
+  useEffect(() => {
+    if (isStreaming) setOpen(true)
+    else setOpen(false)
+  }, [isStreaming])
+
+  return (
+    <div className="mb-2 rounded-lg border border-zinc-700/50 bg-zinc-800/40 text-xs">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-zinc-400 hover:text-zinc-200 transition-colors"
+      >
+        <Brain className={cn('h-3.5 w-3.5 shrink-0', isStreaming && 'animate-pulse text-[#39FF14]')} />
+        <span className="font-medium">
+          {isStreaming ? 'Thinking…' : 'Thought process'}
+        </span>
+        <ChevronDown className={cn('ml-auto h-3.5 w-3.5 transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div className="border-t border-zinc-700/50 px-3 py-2 text-zinc-500 leading-relaxed whitespace-pre-wrap font-mono text-[11px] max-h-48 overflow-y-auto">
+          {text}
+        </div>
+      )}
+    </div>
+  )
+}
+
 interface MessageBubbleProps {
   msg        : UIMessage
   isLast     : boolean
@@ -110,9 +140,11 @@ function MessageBubble({ msg, isLast, isStreaming }: MessageBubbleProps) {
     )
   }
 
-  const textParts = msg.parts.filter(isTextUIPart)
-  const toolParts = msg.parts.filter(p => p.type.startsWith('tool-')) as AnyToolPart[]
-  const fullText  = textParts.map(p => p.text).join('')
+  const textParts      = msg.parts.filter(isTextUIPart)
+  const toolParts      = msg.parts.filter(p => p.type.startsWith('tool-')) as AnyToolPart[]
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const reasoningText  = msg.parts.filter(p => p.type === 'reasoning').map(p => (p as any).text ?? (p as any).reasoning ?? '').join('\n')
+  const fullText       = textParts.map(p => p.text).join('').trimStart()
 
   return (
     <div className="group flex items-start gap-3 px-4 py-3">
@@ -121,6 +153,11 @@ function MessageBubble({ msg, isLast, isStreaming }: MessageBubbleProps) {
       </Avatar>
 
       <div className="flex flex-col gap-1.5 max-w-[85%]">
+        {/* Thinking block — shown for reasoning models */}
+        {reasoningText && (
+          <ThinkingBlock text={reasoningText} isStreaming={isStreaming && isLast && !fullText} />
+        )}
+
         {/* Tool status chips */}
         {toolParts.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
@@ -165,11 +202,15 @@ function ThinkingSkeleton() {
   )
 }
 
+export interface ChatPanelHandle {
+  sendError: (error: string) => void
+}
+
 interface ChatPanelProps {
   sessionId: string | null
 }
 
-export function ChatPanel({ sessionId }: ChatPanelProps) {
+export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function ChatPanel({ sessionId }, ref) {
   const scrollRef  = useRef<HTMLDivElement>(null)
   const bottomRef  = useRef<HTMLDivElement>(null)
   const nearBottom = useRef(true)
@@ -191,6 +232,14 @@ export function ChatPanel({ sessionId }: ChatPanelProps) {
   )
 
   const { messages, sendMessage, stop, status, setMessages } = useChat({ transport })
+
+  useImperativeHandle(ref, () => ({
+    sendError: (error: string) => {
+      sendMessage({
+        text: `The training script failed to compile with the following error:\n\n${error}\n\nPlease fix the script and call create_notebook again with the corrected version.`,
+      })
+    },
+  }), [sendMessage])
 
   const isLoading = status === 'streaming' || status === 'submitted'
 
@@ -415,4 +464,4 @@ export function ChatPanel({ sessionId }: ChatPanelProps) {
       </div>
     </div>
   )
-}
+})

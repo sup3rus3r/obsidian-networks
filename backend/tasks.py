@@ -17,11 +17,33 @@ MAX_OUTPUT_GB        = int(os.environ.get("MAX_OUTPUT_GB", "10"))
 MAX_EPOCHS           = int(os.environ.get("MAX_EPOCHS", "200"))
 
 ALLOWED_IMPORTS = {
-    "tensorflow", "keras", "numpy", "pandas",
-    "sklearn", "scipy", "gymnasium", "gym",
-    "matplotlib", "seaborn", "plotly", "statsmodels",
-    "os", "sys", "pathlib", "json", "math", "collections", "typing", "functools", "itertools", "datetime",
-    "warnings", "random", "time", "re", "csv", "io", "copy", "abc", "enum",
+    # Deep learning
+    "tensorflow", "keras", "torch", "torchvision", "torchaudio",
+    # Data / numerics
+    "numpy", "pandas", "scipy", "statsmodels", "sympy", "xarray",
+    # ML / sklearn ecosystem
+    "sklearn", "xgboost", "lightgbm", "catboost", "shap", "optuna",
+    # RL
+    "gymnasium", "gym", "stable_baselines3",
+    # Visualization
+    "matplotlib", "seaborn", "plotly", "bokeh", "altair", "PIL", "cv2",
+    # NLP / text
+    "transformers", "tokenizers", "datasets", "nltk", "spacy", "gensim",
+    # Image / audio
+    "skimage", "imageio", "librosa", "soundfile",
+    # Utilities
+    "os", "sys", "pathlib", "json", "math", "collections", "typing",
+    "functools", "itertools", "datetime", "warnings", "random", "time",
+    "re", "csv", "io", "copy", "abc", "enum", "dataclasses", "struct",
+    "hashlib", "base64", "urllib", "http", "zipfile", "tarfile", "gzip",
+    "pickle", "shelve", "sqlite3", "pprint", "textwrap", "string",
+    "operator", "heapq", "bisect", "array", "queue", "threading",
+    "multiprocessing", "concurrent", "contextlib", "gc", "traceback",
+    "inspect", "types", "weakref", "numbers", "decimal", "fractions",
+    "statistics", "cmath", "logging",
+    # Tabular / data engineering
+    "pyarrow", "fastparquet", "openpyxl", "xlrd", "h5py", "tables",
+    "joblib", "tqdm", "more_itertools",
 }
 # Blocked as standalone function calls only (e.g. eval("..."), exec("..."))
 # NOT as method calls — model.compile() is legitimate Keras API
@@ -54,14 +76,18 @@ def _obsidian_encode_cats(df):
     for _c in list(df.columns):
         if _c == _target:
             continue
-        if (
-            df[_c].dtype == object
-            or str(df[_c].dtype) in ("string", "str", "category")
-            or hasattr(df[_c], "cat")
-            or _pd.api.types.is_string_dtype(df[_c])
-            or _pd.api.types.is_object_dtype(df[_c])
-        ):
-            df[_c] = _pd.Categorical(df[_c]).codes.astype("float32")
+        _dtype = df[_c].dtype
+        # Detect non-numeric: use pandas helpers only — numpy issubdtype cannot
+        # interpret pandas extension types (StringDtype, ArrowDtype, etc.) and raises.
+        try:
+            _is_numeric = _pd.api.types.is_numeric_dtype(df[_c])
+        except Exception:
+            _is_numeric = False
+        if not _is_numeric:
+            try:
+                df[_c] = _pd.Categorical(df[_c].astype(str)).codes.astype("float32")
+            except Exception:
+                pass  # leave column as-is; to_numpy will raise a clear error
     return df
 df = _obsidian_encode_cats(df)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -207,6 +233,293 @@ def patch_safe_concatenate(code: str) -> str:
     return code
 
 
+def patch_normalizer_name(code: str) -> str:
+    """Fix inconsistent Normalization layer variable names using AST.
+
+    Weak models sometimes assign the layer to e.g. 'ormalizer' then call
+    'normalizer.adapt(...)' — causing a NameError at runtime. This patch:
+    1. Finds the variable name actually assigned keras.layers.Normalization()
+    2. Finds the variable name used in .adapt() calls
+    3. If they differ, renames all occurrences of the adapt-caller to the
+       assigned name (or vice-versa, picking the canonical 'normalizer').
+    """
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return code
+
+    # Find all assignments: <name> = keras.layers.Normalization(...)
+    assigned_names: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
+            continue
+        val = node.value
+        if not isinstance(val, ast.Call):
+            continue
+        func = val.func
+        is_norm = (
+            (isinstance(func, ast.Attribute) and func.attr == 'Normalization')
+        )
+        if is_norm:
+            assigned_names.append(node.targets[0].id)
+
+    if not assigned_names:
+        return code
+
+    assigned = assigned_names[0]
+
+    # Find all <name>.adapt(...) call targets
+    adapt_targets: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Attribute) and func.attr == 'adapt':
+            if isinstance(func.value, ast.Name):
+                adapt_targets.append(func.value.id)
+
+    if not adapt_targets:
+        return code
+
+    adapt_name = adapt_targets[0]
+
+    # If they match, nothing to do
+    if assigned == adapt_name:
+        return code
+
+    # assigned name is ground truth (it's what was actually created).
+    # Rename all uses of the wrong adapt-caller to match.
+    code = re.sub(rf'\b{re.escape(adapt_name)}\b', assigned, code)
+    return code
+
+
+def patch_keras_mistakes(code: str) -> str:
+    """Fix common Keras/TF errors produced by weak models. Regex-based, order matters.
+
+    Handles:
+    1. matplotlib.use("Agg") before import matplotlib — move import before the call
+    2. bare `import keras` → `from tensorflow import keras`
+    3. `from keras import X` → `from tensorflow.keras import X`
+    4. `keras.X` references → `tensorflow.keras.X` (only if not already prefixed)
+    5. plt.show() → plt.close()  (headless environment — show() hangs)
+    6. model.save("name.keras") missing output/ prefix → model.save("output/name.keras")
+       (only for bare filenames, not already-prefixed paths)
+    7. model.save("name.h5") → same output/ prefix fix
+    """
+    # ── 1. matplotlib.use("Agg") before import matplotlib ────────────────────
+    # Pattern: matplotlib.use(...) appears before any `import matplotlib` line.
+    # Fix: ensure `import matplotlib` appears immediately before the .use() call.
+    use_re = re.compile(r'^([ \t]*)matplotlib\.use\s*\(["\']Agg["\']\)', re.MULTILINE)
+    imp_re = re.compile(r'^[ \t]*import matplotlib\b', re.MULTILINE)
+    if use_re.search(code) and not imp_re.search(code):
+        # No import matplotlib at all — insert one before the .use() call
+        code = use_re.sub(r'import matplotlib\n\1matplotlib.use("Agg")', code)
+    else:
+        # import exists but may be after the .use() call — reorder
+        lines = code.splitlines(keepends=True)
+        use_lineno   = next((i for i, l in enumerate(lines) if use_re.search(l.rstrip())), None)
+        imp_lineno   = next((i for i, l in enumerate(lines) if imp_re.search(l.rstrip())), None)
+        if use_lineno is not None and imp_lineno is not None and imp_lineno > use_lineno:
+            # Move the import line to just before the .use() line
+            imp_line = lines.pop(imp_lineno)
+            lines.insert(use_lineno, imp_line)
+            code = ''.join(lines)
+
+    # ── 2. `import keras` → `from tensorflow import keras` ───────────────────
+    # Only bare `import keras` — leave `import keras.layers` etc. for step 3.
+    code = re.sub(
+        r'^([ \t]*)import\s+keras\s*$',
+        r'\1from tensorflow import keras',
+        code, flags=re.MULTILINE,
+    )
+
+    # ── 3. `from keras import X` → `from tensorflow.keras import X` ──────────
+    code = re.sub(
+        r'\bfrom\s+keras\b',
+        'from tensorflow.keras',
+        code,
+    )
+
+    # ── 4. `import keras.X` → `import tensorflow.keras.X` ────────────────────
+    code = re.sub(
+        r'^([ \t]*)import\s+keras\.',
+        r'\1import tensorflow.keras.',
+        code, flags=re.MULTILINE,
+    )
+
+    # ── 5. bare `keras.` attribute access → `tensorflow.keras.` ──────────────
+    # Only rewrite `keras.` not already preceded by `tensorflow.`
+    code = re.sub(r'(?<!tensorflow\.)(?<!\w)keras\.', 'tensorflow.keras.', code)
+
+    # ── 5b. ensure `import tensorflow` is present when tensorflow.keras.* is used
+    # After the rewrites above, the script may reference `tensorflow.keras.*` but
+    # only have `from tensorflow import keras` — `tensorflow` as a bare name won't
+    # be in scope.  Prepend `import tensorflow` if missing.
+    if 'tensorflow.keras' in code and not re.search(r'^import\s+tensorflow\s*$', code, re.MULTILINE):
+        code = 'import tensorflow\n' + code
+
+    # ── 6. plt.show() → plt.close() ──────────────────────────────────────────
+    code = re.sub(r'\bplt\.show\s*\(\s*\)', 'plt.close()', code)
+
+    # ── 7. model.save("bare_name.keras") → model.save("output/bare_name.keras")
+    #       Same for .h5. Skip paths that already start with output/ or / or .
+    def _fix_save_path(m: re.Match) -> str:
+        quote = m.group(1)   # ' or "
+        path  = m.group(2)
+        # Already has a directory component or is absolute → leave alone
+        if '/' in path or '\\' in path or path.startswith('.'):
+            return m.group(0)
+        return f'.save({quote}output/{path}{quote})'
+
+    code = re.sub(
+        r'\.save\((["\'])([^"\']+\.(?:keras|h5))\1\)',
+        _fix_save_path,
+        code,
+    )
+
+    return code
+
+
+_CLASSIFICATION_LOSSES = {
+    "categorical_crossentropy", "sparse_categorical_crossentropy",
+    "binary_crossentropy", "CategoricalCrossentropy",
+    "SparseCategoricalCrossentropy", "BinaryCrossentropy",
+}
+
+_CANONICAL_PLOTS_BLOCK = '''
+# ── Obsidian canonical plots (always generated) ───────────────────────────────
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
+import os as _os
+
+def _obsidian_plots(history, model, X_test, y_test, task_type):
+    """Generate a consistent set of diagnostic plots regardless of model type."""
+    _os.makedirs("output", exist_ok=True)
+    hist = history.history
+
+    # ── 1. Loss curve ─────────────────────────────────────────────────────────
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.plot(hist["loss"],     label="Train loss",      linewidth=2)
+    if "val_loss" in hist:
+        ax.plot(hist["val_loss"], label="Val loss", linewidth=2, linestyle="--")
+    ax.set_xlabel("Epoch"); ax.set_ylabel("Loss")
+    ax.set_title("Training & Validation Loss")
+    ax.legend(); ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig("output/loss_curve.png", dpi=150, bbox_inches="tight")
+    plt.close()
+
+    # ── 2. Accuracy / metric curve ─────────────────────────────────────────────
+    _metric_key = next(
+        (k for k in hist if k != "loss" and not k.startswith("val_") and k != "lr"),
+        None,
+    )
+    if _metric_key:
+        _val_key = f"val_{_metric_key}"
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.plot(hist[_metric_key], label=f"Train {_metric_key}", linewidth=2)
+        if _val_key in hist:
+            ax.plot(hist[_val_key], label=f"Val {_metric_key}", linewidth=2, linestyle="--")
+        ax.set_xlabel("Epoch"); ax.set_ylabel(_metric_key.capitalize())
+        ax.set_title(f"Training & Validation {_metric_key.capitalize()}")
+        ax.legend(); ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(f"output/{_metric_key}_curve.png", dpi=150, bbox_inches="tight")
+        plt.close()
+
+    # ── 3a. Confusion matrix (classification) ─────────────────────────────────
+    if task_type == "classification":
+        try:
+            from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
+            _preds = model.predict(X_test, verbose=0)
+            if _preds.shape[-1] > 1:
+                _y_pred = np.argmax(_preds, axis=1)
+                _y_true = np.argmax(y_test, axis=1) if len(y_test.shape) > 1 and y_test.shape[-1] > 1 else np.array(y_test).ravel()
+            else:
+                _y_pred = (_preds.ravel() >= 0.5).astype(int)
+                _y_true = np.array(y_test).ravel()
+            _cm = confusion_matrix(_y_true, _y_pred)
+            _disp = ConfusionMatrixDisplay(_cm)
+            fig, ax = plt.subplots(figsize=(max(5, _cm.shape[0]), max(5, _cm.shape[0])))
+            _disp.plot(ax=ax, colorbar=False)
+            ax.set_title("Confusion Matrix")
+            plt.tight_layout()
+            plt.savefig("output/confusion_matrix.png", dpi=150, bbox_inches="tight")
+            plt.close()
+        except Exception as _e:
+            print(f"[obsidian] confusion matrix skipped: {_e}")
+
+    # ── 3b. Actual vs Predicted scatter (regression) ───────────────────────────
+    if task_type == "regression":
+        try:
+            _preds = model.predict(X_test, verbose=0).ravel()
+            _true  = np.array(y_test).ravel()
+            _mask  = np.isfinite(_preds) & np.isfinite(_true)
+            _preds, _true = _preds[_mask], _true[_mask]
+            fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+            # Scatter
+            axes[0].scatter(_true, _preds, alpha=0.4, s=12, color="#39FF14")
+            _lo, _hi = min(_true.min(), _preds.min()), max(_true.max(), _preds.max())
+            axes[0].plot([_lo, _hi], [_lo, _hi], "r--", linewidth=1.5, label="Perfect fit")
+            axes[0].set_xlabel("Actual"); axes[0].set_ylabel("Predicted")
+            axes[0].set_title("Actual vs Predicted")
+            axes[0].legend(); axes[0].grid(True, alpha=0.3)
+            # Residuals
+            _resid = _preds - _true
+            axes[1].hist(_resid, bins=40, color="#39FF14", edgecolor="black", alpha=0.7)
+            axes[1].axvline(0, color="red", linewidth=1.5, linestyle="--")
+            axes[1].set_xlabel("Residual"); axes[1].set_ylabel("Count")
+            axes[1].set_title("Residual Distribution")
+            axes[1].grid(True, alpha=0.3)
+            plt.tight_layout()
+            plt.savefig("output/predictions.png", dpi=150, bbox_inches="tight")
+            plt.close()
+        except Exception as _e:
+            print(f"[obsidian] predictions plot skipped: {_e}")
+
+try:
+    _obsidian_plots(history, model, X_test, y_test, "{task_type}")
+except Exception as _plot_err:
+    print(f"[obsidian] canonical plots failed: {_plot_err}")
+# ─────────────────────────────────────────────────────────────────────────────
+'''
+
+
+def patch_canonical_plots(code: str) -> str:
+    """Remove all plt.savefig calls from the generated script and append
+    a canonical, deterministic plot block at the end.
+
+    This guarantees every run produces the same set of plots regardless of
+    what the model wrote.  The canonical set is:
+      - loss_curve.png            (always)
+      - <metric>_curve.png        (always, first non-loss metric)
+      - confusion_matrix.png      (classification only)
+      - predictions.png           (regression only — scatter + residual histogram)
+    """
+    # Detect task type from loss function name
+    task_type = "regression"
+    for loss_name in _CLASSIFICATION_LOSSES:
+        if loss_name in code:
+            task_type = "classification"
+            break
+
+    # Strip existing savefig calls so we don't get duplicates / extra plots.
+    # We remove whole lines containing plt.savefig(...) — multi-line savefig
+    # calls are rare and not worth the complexity of AST removal.
+    code = re.sub(r'[ \t]*plt\.savefig\s*\([^)]*\)\s*\n', '\n', code)
+
+    # Remove seaborn-based plot saves (sns.heatmap(...).get_figure().savefig(...))
+    code = re.sub(r'[ \t]*[^#\n]*\.savefig\s*\([^)]*\)\s*\n', '\n', code)
+
+    # Append canonical block with task_type substituted
+    code = code.rstrip() + "\n" + _CANONICAL_PLOTS_BLOCK.replace("{task_type}", task_type)
+    return code
+
+
 def validate_code(code: str) -> None:
     """AST-level validation: allowlist imports, block dangerous builtins."""
     tree = ast.parse(code)
@@ -289,8 +602,11 @@ def run_compilation_task(self, session_id: str) -> dict:
 
     code = script_path.read_text()
     validate_code(code)
+    code = patch_keras_mistakes(code)
     code = patch_categorical_encoding(code)
     code = patch_safe_concatenate(code)
+    code = patch_normalizer_name(code)
+    code = patch_canonical_plots(code)
     script_path.write_text(code)  # overwrite so subprocess runs the patched version
 
     self.update_state(state="PROGRESS", meta={"step": "Compiling…", "progress": 5})

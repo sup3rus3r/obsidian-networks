@@ -106,6 +106,15 @@ interface MessageContentProps {
 }
 
 export function MessageContent({ content, isStreaming = false, className }: MessageContentProps) {
+  // Reasoning tokens are extracted server-side via extractReasoningMiddleware and
+  // rendered separately as a ThinkingBlock. Keep a client-side strip as a fallback
+  // for any models / providers where the middleware didn't catch the tags.
+  const displayContent = (() => {
+    let s = content.replace(/<think>[\s\S]*?<\/think>/g, '')
+    if (s.includes('<think>')) s = s.slice(0, s.indexOf('<think>'))
+    return s.trimStart()
+  })()
+
   // Memoized so ReactMarkdown doesn't recreate all renderers on every streaming chunk
   const components = useMemo(() => ({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -187,10 +196,10 @@ export function MessageContent({ content, isStreaming = false, className }: Mess
   return (
     <div className={cn('prose prose-sm prose-invert max-w-none', className)}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-        {content}
+        {displayContent}
       </ReactMarkdown>
 
-      {isStreaming && content && (
+      {isStreaming && (displayContent || content) && (
         <span className="inline-flex items-center gap-0.5 ml-0.5 align-middle">
           <span className="h-1 w-1 rounded-full bg-zinc-500 animate-bounce [animation-delay:0ms]" />
           <span className="h-1 w-1 rounded-full bg-zinc-500 animate-bounce [animation-delay:150ms]" />

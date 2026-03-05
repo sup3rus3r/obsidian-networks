@@ -1,10 +1,10 @@
 'use client'
 
 import Image from 'next/image'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { usePlatformSession } from '@/hooks/use-platform-session'
 import { useEnvironment } from '@/hooks/use-environment'
-import { ChatPanel } from '@/components/chat/chat-panel'
+import { ChatPanel, type ChatPanelHandle } from '@/components/chat/chat-panel'
 import { ArtifactPanel } from '@/components/artifacts/artifact-panel'
 import {
   ResizablePanelGroup,
@@ -91,6 +91,11 @@ export default function Home() {
 
   // Incrementing this key forces ChatPanel + ArtifactPanel to remount (clears all local state)
   const [resetKey, setResetKey] = useState(0)
+  const chatRef = useRef<ChatPanelHandle>(null)
+
+  const handleCompileError = useCallback((error: string) => {
+    chatRef.current?.sendError(error)
+  }, [])
 
   const handleNewSession = useCallback(async () => {
     await newSession()
@@ -142,14 +147,14 @@ export default function Home() {
 
         {/* Left: Chat */}
         <ResizablePanel defaultSize={62} minSize={40}>
-          <ChatPanel key={resetKey} sessionId={sessionId} />
+          <ChatPanel key={resetKey} sessionId={sessionId} ref={chatRef} />
         </ResizablePanel>
 
         <ResizableHandle withHandle className="bg-zinc-800 w-px" />
 
         {/* Right: Artifact panel */}
         <ResizablePanel defaultSize={38} minSize={28}>
-          <ArtifactPanel key={resetKey} sessionId={sessionId} />
+          <ArtifactPanel key={resetKey} sessionId={sessionId} onCompileError={handleCompileError} />
         </ResizablePanel>
 
       </ResizablePanelGroup>

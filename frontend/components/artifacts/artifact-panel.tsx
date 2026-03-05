@@ -399,10 +399,12 @@ function CompileSection({
   sessionId,
   status,
   onCompileSuccess,
+  onCompileError,
 }: {
   sessionId        : string
   status           : ArtifactStatus
   onCompileSuccess : () => void
+  onCompileError   : (error: string) => void
 }) {
   const [compile, setCompile] = useState<CompileState>({
     phase: 'idle', progress: 0, step: '', error: null,
@@ -412,6 +414,21 @@ function CompileSection({
 
   // Clean up poll on unmount
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
+
+  // When the notebook is re-saved (mtime advances), reset error state so the
+  // compile button reappears — the model has fixed the script and saved a new one.
+  const prevMtimeRef = useRef<number | null>(null)
+  useEffect(() => {
+    const mtime = status.notebook_mtime
+    if (
+      mtime !== null &&
+      prevMtimeRef.current !== null &&
+      mtime > prevMtimeRef.current
+    ) {
+      setCompile(c => c.phase === 'error' ? { phase: 'idle', progress: 0, step: '', error: null } : c)
+    }
+    prevMtimeRef.current = mtime ?? null
+  }, [status.notebook_mtime])
 
   // Hide if: no notebook yet, OR (model exists AND task is not actively running/errored)
   if (!status.notebook) return null
@@ -444,7 +461,9 @@ function CompileSection({
         } else if (data.state === 'FAILURE') {
           clearInterval(pollRef.current!)
           pollRef.current = null
-          setCompile({ phase: 'error', progress: 0, step: '', error: data.error ?? 'Compilation failed' })
+          const errMsg = data.error ?? 'Compilation failed'
+          setCompile({ phase: 'error', progress: 0, step: '', error: errMsg })
+          onCompileError(errMsg)
         } else {
           setCompile(prev => ({
             ...prev,
@@ -558,14 +577,15 @@ function EnvironmentSelector() {
 }
 
 interface ArtifactPanelProps {
-  sessionId: string | null
+  sessionId     : string | null
+  onCompileError: (error: string) => void
 }
 
 const POLL_INTERVAL = 4_000   // ms between status checks
 
-export function ArtifactPanel({ sessionId }: ArtifactPanelProps) {
+export function ArtifactPanel({ sessionId, onCompileError }: ArtifactPanelProps) {
   const [analysis,      setAnalysis]      = useState<DatasetAnalysis | null>(null)
-  const [status,        setStatus]        = useState<ArtifactStatus>({ notebook: false, models: [], images: [], epochs_run: null, epochs_max: null })
+  const [status,        setStatus]        = useState<ArtifactStatus>({ notebook: false, notebook_mtime: null, models: [], images: [], epochs_run: null, epochs_max: null })
   const [limits,        setLimits]        = useState<PlatformLimits | null>(null)
   const [awaitingPlots, setAwaitingPlots] = useState(false)
   const pollRef                           = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -674,7 +694,7 @@ export function ArtifactPanel({ sessionId }: ArtifactPanelProps) {
 
       {/* Compile & Train — shown after notebook is ready, before model exists */}
       {sessionId && (
-        <CompileSection sessionId={sessionId} status={status} onCompileSuccess={onCompileSuccess} />
+        <CompileSection sessionId={sessionId} status={status} onCompileSuccess={onCompileSuccess} onCompileError={onCompileError} />
       )}
 
       <Separator className="bg-zinc-800" />

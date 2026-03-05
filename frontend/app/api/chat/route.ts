@@ -1,4 +1,4 @@
-import { streamText, convertToModelMessages, pruneMessages, tool, stepCountIs, type UIMessage } from 'ai'
+import { streamText, convertToModelMessages, pruneMessages, tool, stepCountIs, wrapLanguageModel, extractReasoningMiddleware, type UIMessage } from 'ai'
 import { z } from 'zod'
 import { getModel, getProvider } from '@/lib/model'
 
@@ -194,6 +194,11 @@ const researchTools = {
 function createNotebookTool(sessionId: string | null) {
   const apiBase = process.env.INTERNAL_API_URL ?? 'http://localhost:8000'
 
+  // Per-request retry counter — resets each time the route is called (i.e. each user turn).
+  // Caps at 3 attempts to prevent infinite fix-and-retry loops.
+  let attempts = 0
+  const MAX_ATTEMPTS = 3
+
   return tool({
     description:
       'Save the final training script as a downloadable Jupyter notebook (.ipynb). ' +
@@ -207,6 +212,19 @@ function createNotebookTool(sessionId: string | null) {
     }),
     execute: async (input: { script: string; description: string }) => {
       if (!sessionId) return { error: 'No active session — cannot save notebook' }
+
+      attempts++
+
+      if (attempts > MAX_ATTEMPTS) {
+        return {
+          error: `HARD STOP — create_notebook has failed ${MAX_ATTEMPTS} times in a row.`,
+          action:
+            'Do NOT call create_notebook again. Instead, tell the user that the script could not ' +
+            'be validated after multiple attempts, apologise, and ask them to describe a simpler ' +
+            'architecture or fewer features so you can start fresh.',
+        }
+      }
+
       try {
         const res = await fetch(`${apiBase}/platform/notebook/${sessionId}`, {
           method : 'POST',
@@ -215,7 +233,19 @@ function createNotebookTool(sessionId: string | null) {
           signal : AbortSignal.timeout(15_000),
         })
         if (!res.ok) {
-          const text = await res.text().catch(() => res.statusText)
+          const body = await res.json().catch(() => null)
+          // 422 = structured validation errors from the backend — surface them clearly
+          if (res.status === 422 && body?.detail?.errors) {
+            const attemptsLeft = MAX_ATTEMPTS - attempts
+            return {
+              error      : body.detail.message ?? 'Script validation failed.',
+              errors     : (body.detail.errors as string[]),
+              action     : attemptsLeft > 0
+                ? `Fix ALL listed errors and call create_notebook again (${attemptsLeft} attempt(s) remaining).`
+                : 'HARD STOP — no attempts remaining. Tell the user to describe a simpler approach.',
+            }
+          }
+          const text = body ? JSON.stringify(body) : res.statusText
           return { error: `Backend error ${res.status}: ${text}` }
         }
         return { ok: true, message: 'Notebook saved. The user can now download it from the Downloads panel.' }
@@ -252,23 +282,35 @@ CRITICAL — follow this decision tree on EVERY user message:
 
 2. USER HAS STATED A CLEAR GOAL (either in the upload message or a follow-up)?
    → You MUST call research tools BEFORE forming any architectural opinion. This is non-negotiable.
-   → STEP 1 (MANDATORY): Call fetch_arxiv_papers with a query matching their domain — e.g. "tabular regression deep learning 2024"
-   → STEP 2 (MANDATORY): Call search_tensorflow_docs to verify the Keras 3 API for the approach suggested by the literature
-   → Only AFTER both tool calls return results, proceed:
-   → STEP 3: Analyse the schema: task type, target column, class balance, preprocessing needs
-   → STEP 4: Write the complete script and pass it DIRECTLY to create_notebook — do NOT print or show the script in your chat reply
-   → STEP 5: After create_notebook succeeds, write a SHORT chat reply (3–6 bullet points max) summarising: architecture chosen, why, key hyperparameters, and what the user should expect. No code in the reply.
+   → STEP 1 (MANDATORY): Call fetch_arxiv_papers with a query matching their domain — e.g. "tabular regression deep learning 2024". Read ALL returned papers, not just the first one.
+   → STEP 2 (MANDATORY): Call fetch_arxiv_papers AGAIN with a second, different query to broaden coverage — e.g. "neural network architecture benchmark tabular data 2024". Compare findings across both calls.
+   → STEP 3 (MANDATORY): Call search_tensorflow_docs to verify the Keras 3 API for the top architecture identified from the literature.
+   → STEP 4 (MANDATORY): If the literature references a specific technique you are not certain about (e.g. residual connections, attention, feature tokenisation), call fetch_url on the most relevant paper or doc page to read it in full before writing code.
+   → Only AFTER all research tool calls are complete, proceed:
+   → STEP 5: Analyse the schema: task type, target column, class balance, preprocessing needs
+   → STEP 6: Write the complete script and pass it DIRECTLY to create_notebook — do NOT print or show the script in your chat reply
+   → STEP 7: If create_notebook returns errors, fix ALL listed errors in the script and call create_notebook again. Repeat until it succeeds.
+   → STEP 8: After create_notebook succeeds, write a SHORT chat reply (3–6 bullet points max) summarising: architecture chosen, why (citing specific papers), key hyperparameters, and what the user should expect. No code in the reply.
 
 3. USER ASKS TO CHANGE/IMPROVE THE MODEL?
+   → Call fetch_arxiv_papers with a query specific to the requested change before modifying the script.
    → Incorporate changes into the full script, call create_notebook again to overwrite.
-   → Reply with 2–3 sentences describing what changed. No code in the reply.
+   → Reply with 2–3 sentences describing what changed and which paper motivated it. No code in the reply.
 
 4. GENERAL KERAS/TF QUESTION (no dataset, no code request)?
    → Call search_tensorflow_docs first, then answer concisely with cited sources.
 
+5. create_notebook RETURNS ERRORS?
+   → Fix ALL listed errors immediately. Do NOT ask the user for clarification — fix and retry autonomously.
+   → Call create_notebook again with the corrected script. Repeat until it returns ok: true.
+   → If create_notebook returns a HARD STOP (action says "Do NOT call create_notebook again"), STOP immediately.
+     Do NOT call create_notebook again under any circumstances. Apologise to the user and ask them to describe a simpler architecture so you can start fresh.
+
 NEVER suggest or name an architecture before running fetch_arxiv_papers.
+NEVER call fetch_arxiv_papers only once — always run at least two queries with different angles.
 NEVER jump to writing code if the user has not yet told you what they want to build.
 NEVER ask more than one question at a time.
+NEVER narrate your reasoning, instructions, or decision process in your reply — think silently and only output the final response to the user.
 </behaviour>
 
 <format>
@@ -284,12 +326,12 @@ NEVER ask more than one question at a time.
 <constraints>
 - The dataset is ALWAYS available as "dataset.csv" (or "dataset.json" for JSON uploads) in the working directory — use this exact filename for DATA_PATH. NEVER use the original uploaded filename.
 - All model output files (.keras, .h5) MUST be saved inside the "output/" subdirectory — e.g. model.save("output/model.keras")
-- If the script generates any matplotlib/seaborn/plotly plots, ALWAYS save them to "output/" using plt.savefig("output/plot_name.png", dpi=150, bbox_inches="tight") and then call plt.close(). NEVER call plt.show(). Use descriptive filenames (e.g. "output/training_history.png", "output/feature_importance.png"). Add import matplotlib; matplotlib.use("Agg") at the top of any script that uses matplotlib to prevent display errors in headless environments.
-- Import Keras as: import keras (NEVER import tensorflow.keras or from tensorflow import keras)
+- DO NOT write any matplotlib/seaborn plot code or plt.savefig calls — the platform automatically generates a canonical set of diagnostic plots (loss curve, metric curve, confusion matrix or predictions scatter) after training. Adding your own plot code will be stripped and may cause errors.
+- Always start scripts with "import tensorflow" and access Keras as tensorflow.keras — e.g. tensorflow.keras.Input(), tensorflow.keras.layers.Dense(). NEVER use standalone "import keras" or bare "keras.X" references.
 - Use the Functional API for all models — no Sequential for anything non-trivial
-- CRITICAL — ALL tabular features are numeric by the time the model sees them. The worker pre-encodes every string/object/category column to float32 integer codes automatically. You must treat ALL columns (including originally-categorical ones like Sex, ChestPainType, etc.) as plain numeric features.
+- CRITICAL — ALL tabular features are numeric by the time the model sees them. The worker automatically encodes every non-numeric column to float32 integer codes. Treat ALL columns as plain numeric features.
 - THEREFORE: Use a SINGLE keras.Input of shape (n_features,) and a SINGLE keras.layers.Normalization layer for the entire feature matrix. NEVER build separate embedding branches, NEVER use Embedding layers, NEVER use StringLookup, NEVER use separate categorical/numerical input branches for tabular data. One input, one normalizer, then your Dense layers.
-- The feature matrix is always: X = df[feature_cols].to_numpy(dtype='float32') — this always works because all columns are already float32.
+- The feature matrix is always: X = df[feature_cols].to_numpy(dtype='float32')
 - CRITICAL — Normalization layer: ALWAYS call normalizer.adapt(X_train) on the TRAINING split only BEFORE building the model. Never adapt on the full dataset (leakage). Never skip adapt() — unadapted Normalization outputs all-zero which causes NaN loss immediately.
 - CRITICAL — NaN safety: ALWAYS add these guards after loading data and before training:
   (a) Drop or impute NaN/inf values: df = df.replace([np.inf, -np.inf], np.nan).dropna()
@@ -300,6 +342,7 @@ NEVER ask more than one question at a time.
 - Every supervised training script must include EarlyStopping (patience=20, restore_best_weights=True) + ModelCheckpoint callbacks
 - Always set epochs=200 in model.fit() — EarlyStopping will cut it short when appropriate. NEVER use epochs=1 or any low value.
 - Never use deprecated Keras 2 APIs
+- CRITICAL — residual/skip connections with layers.Add() REQUIRE matching shapes. When the number of units changes between the input and output of a block, ALWAYS project the shortcut with a Dense layer of the same output units before the Add(). Example: shortcut = layers.Dense(units)(shortcut) before layers.Add()([x, shortcut])
 - ALWAYS call fetch_arxiv_papers AND search_tensorflow_docs before proposing or writing any architecture — even when the user has already named a specific architecture (e.g. "Wide & Deep", "ResNet", "LSTM"). Research is mandatory, not optional.
 - If you are unsure of an API signature, call search_tensorflow_docs before writing code
 - Always call create_notebook after producing a complete training script
@@ -352,12 +395,39 @@ export async function POST(req: Request) {
   // For OpenAI / LM Studio: prune old tool call results from history to keep
   // context lean (arXiv abstracts and TF doc fetches are large).
   // For Anthropic: use server-side contextManagement instead (see providerOptions).
-  const modelMessages = provider !== 'anthropic'
+  const prunedMessages = provider !== 'anthropic'
     ? pruneMessages({ messages: rawMessages, toolCalls: 'before-last-5-messages' })
     : rawMessages
 
+  // LM Studio: strip all tool call/result messages from history — LM Studio struggles
+  // to handle tool message history across turns and rejects subsequent requests.
+  // Keep only user and assistant (text-only) messages; tool exchanges are ephemeral.
+  const modelMessages = provider === 'lmstudio'
+    ? prunedMessages
+        .filter(msg => msg.role === 'user' || msg.role === 'assistant')
+        .map(msg => {
+          // Flatten array content to plain string
+          if (!Array.isArray(msg.content)) return msg
+          const text = (msg.content as Array<{ type: string; text?: string }>)
+            .filter(p => p.type === 'text')
+            .map(p => p.text ?? '')
+            .join('')
+          return { ...msg, content: text } as typeof msg
+        })
+        .filter(msg => typeof msg.content === 'string' && msg.content.trim() !== '')
+    : prunedMessages
+
+  // Wrap all models with reasoning middleware — extracts <think>...</think> blocks
+  // from the text stream into proper reasoning parts for the ThinkingBlock UI.
+  // Anthropic/OpenAI native reasoning is handled separately but the middleware
+  // is harmless when no <think> tags are present.
+  const model = wrapLanguageModel({
+    model     : getModel(),
+    middleware: extractReasoningMiddleware({ tagName: 'think' }),
+  })
+
   const result = streamText({
-    model          : getModel(),
+    model          : model,
     system         : SYSTEM,
     messages       : modelMessages,
     tools          : { ...researchTools, create_notebook: createNotebookTool(sessionId) },
@@ -385,5 +455,5 @@ export async function POST(req: Request) {
     },
   })
 
-  return result.toUIMessageStreamResponse()
+  return result.toUIMessageStreamResponse({ sendReasoning: true })
 }

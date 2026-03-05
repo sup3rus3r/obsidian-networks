@@ -21,7 +21,11 @@ from sessions import (
     get_session,
     session_expires_at,
 )
-from tasks import celery_app, run_compilation_task
+from tasks import (
+    celery_app, run_compilation_task, validate_code,
+    patch_keras_mistakes, patch_categorical_encoding,
+    patch_safe_concatenate, patch_normalizer_name,
+)
 
 try:
     import magic as _magic
@@ -305,53 +309,39 @@ _SETUP_NOTES: dict[str, str] = {
 ## Environment Setup
 
 ### Requirements
+- **Linux or WSL2** (Windows Subsystem for Linux)
 - **Python 3.10 – 3.12** (TensorFlow does not support Python 3.13+ yet)
-- Recommended: create a fresh virtual environment before installing
 
 ```bash
-# Create and activate a virtual environment (recommended)
 python -m venv .venv
-# Windows:
-.venv\\Scripts\\activate
-# macOS / Linux:
 source .venv/bin/activate
 ```
 
-### Windows — Visual C++ Redistributable (required for TensorFlow)
-TensorFlow on Windows requires the **Microsoft Visual C++ Redistributable 2019+**.
-If you see a `DLL load failed` error when importing TensorFlow or Keras, install it from:
-👉 https://aka.ms/vs/17/release/vc_redist.x64.exe
-Then restart your terminal / Jupyter kernel and try again.
-
 ### Install dependencies
 ```bash
-pip install "tensorflow>=2.16" keras pandas scikit-learn matplotlib seaborn statsmodels
+pip install "tensorflow-cpu>=2.16" pandas scikit-learn matplotlib seaborn statsmodels
 ```
 
 ### Place your dataset
-Copy your `dataset.csv` file into the **same directory as this notebook** before running the training cells.
+Copy `dataset.csv` into the **same directory as this notebook** before running.
 """,
 
     "nvidia_gpu": """\
 ## Environment Setup
 
 ### Requirements
+- **Linux or WSL2** with NVIDIA GPU
+- NVIDIA drivers + CUDA 12.x installed
 - **Python 3.10 – 3.12**
-- NVIDIA GPU with CUDA 12.x drivers installed
-- Recommended: create a fresh virtual environment
 
 ```bash
 python -m venv .venv
-# Windows: .venv\\Scripts\\activate  |  Linux/macOS: source .venv/bin/activate
+source .venv/bin/activate
 ```
-
-### Windows — Visual C++ Redistributable (required for TensorFlow)
-Install from: 👉 https://aka.ms/vs/17/release/vc_redist.x64.exe
-Restart your terminal after installing if you see `DLL load failed`.
 
 ### Install dependencies (GPU)
 ```bash
-pip install "tensorflow[and-cuda]>=2.16" keras pandas scikit-learn matplotlib seaborn statsmodels
+pip install "tensorflow[and-cuda]>=2.16" pandas scikit-learn matplotlib seaborn statsmodels
 ```
 
 ### Verify GPU is detected
@@ -364,35 +354,13 @@ print(tf.config.list_physical_devices('GPU'))  # should list your GPU
 Copy `dataset.csv` into the **same directory as this notebook**.
 """,
 
-    "apple_silicon": """\
-## Environment Setup
-
-### Requirements
-- **Python 3.10 – 3.12** (install via [pyenv](https://github.com/pyenv/pyenv) or [Homebrew](https://brew.sh/))
-- macOS 12.0+ with Apple Silicon (M1/M2/M3)
-- Recommended: create a fresh virtual environment
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-```
-
-### Install dependencies (Apple Silicon GPU via Metal)
-```bash
-pip install tensorflow-macos tensorflow-metal keras pandas scikit-learn matplotlib seaborn statsmodels
-```
-
-### Place your dataset
-Copy `dataset.csv` into the **same directory as this notebook**.
-""",
-
     "google_colab": """\
 ## Environment Setup
 
 Google Colab already includes TensorFlow. Just install the extra dependencies:
 
 ```python
-!pip install -q keras pandas scikit-learn matplotlib seaborn statsmodels
+!pip install -q pandas scikit-learn matplotlib seaborn statsmodels
 ```
 
 ### Upload your dataset
@@ -402,10 +370,9 @@ or mount Google Drive and point `DATA_PATH` to the correct path.
 }
 
 _PIP_INSTALL: dict[str, str] = {
-    "cpu"          : '!pip install "tensorflow>=2.16" keras pandas scikit-learn matplotlib seaborn statsmodels',
-    "nvidia_gpu"   : '!pip install "tensorflow[and-cuda]>=2.16" keras pandas scikit-learn matplotlib seaborn statsmodels',
-    "apple_silicon": "!pip install tensorflow-macos tensorflow-metal keras pandas scikit-learn matplotlib seaborn statsmodels",
-    "google_colab" : "# TensorFlow is pre-installed on Colab\n!pip install -q keras pandas scikit-learn matplotlib seaborn statsmodels",
+    "cpu"         : 'pip install "tensorflow-cpu>=2.16" pandas scikit-learn matplotlib seaborn statsmodels',
+    "nvidia_gpu"  : 'pip install "tensorflow[and-cuda]>=2.16" pandas scikit-learn matplotlib seaborn statsmodels',
+    "google_colab": "# TensorFlow is pre-installed on Colab\n!pip install -q pandas scikit-learn matplotlib seaborn statsmodels",
 }
 
 _SECTION_RE = re.compile(r"^# ── .+ ──+\s*$", re.MULTILINE)
@@ -469,6 +436,62 @@ def build_notebook(script: str, description: str, hardware: str = "cpu") -> dict
     }
 
 
+def _validate_script(script: str) -> list[str]:
+    """Return a list of validation error strings, empty if script looks correct.
+
+    Checks the most critical requirements so the model can fix them before
+    the script is saved and the user attempts to compile.
+    """
+    errors: list[str] = []
+
+    # ── Syntax check ──────────────────────────────────────────────────────────
+    import ast as _ast
+    try:
+        _ast.parse(script)
+    except SyntaxError as e:
+        errors.append(f"SyntaxError at line {e.lineno}: {e.msg}")
+        return errors  # no point checking further if it won't parse
+
+    # ── Security check via existing validator ─────────────────────────────────
+    try:
+        validate_code(script)
+    except ValueError as e:
+        errors.append(f"Security violation: {e}")
+        return errors
+
+    # ── Required structural elements ──────────────────────────────────────────
+    if "model.fit(" not in script and "model.train" not in script and "env.step(" not in script:
+        errors.append("Script does not call model.fit() — training loop is missing.")
+
+    if not re.search(r'\.save\s*\(', script):
+        errors.append("Script does not call model.save() — no model will be produced.")
+
+    if "dataset.csv" not in script and "dataset.json" not in script:
+        errors.append(
+            "Script does not reference 'dataset.csv' or 'dataset.json'. "
+            "Use DATA_PATH = 'dataset.csv' — do not use the original uploaded filename."
+        )
+
+    if re.search(r'\.save\s*\(["\'][^"\']*\.(?:keras|h5)["\']', script):
+        # Check if any save path is bare (no directory separator)
+        for m in re.finditer(r'\.save\s*\(["\']([^"\']+\.(?:keras|h5))["\']', script):
+            path = m.group(1)
+            if "/" not in path and "\\" not in path:
+                errors.append(
+                    f"model.save('{path}') is missing the output/ directory prefix. "
+                    f"Use model.save('output/{path}') instead."
+                )
+
+    if "normalizer.adapt(" not in script and "norm.adapt(" not in script and \
+       re.search(r'Normalization\s*\(', script):
+        errors.append(
+            "A Normalization layer is defined but .adapt() is never called. "
+            "Call normalizer.adapt(X_train) before building the model."
+        )
+
+    return errors
+
+
 @router.post("/notebook/{session_id}")
 async def create_notebook(session_id: str, payload: dict):
     """Convert a generated Python script to a .ipynb and save it."""
@@ -482,6 +505,23 @@ async def create_notebook(session_id: str, payload: dict):
 
     if not script.strip():
         raise HTTPException(status_code=400, detail="Script cannot be empty")
+
+    # Apply all worker patches so the notebook matches what actually ran
+    script = patch_keras_mistakes(script)
+    script = patch_categorical_encoding(script)
+    script = patch_safe_concatenate(script)
+    script = patch_normalizer_name(script)
+
+    # Validate — return errors as 422 so the AI tool caller sees them and retries
+    validation_errors = _validate_script(script)
+    if validation_errors:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "Script validation failed. Fix the errors and call create_notebook again.",
+                "errors" : validation_errors,
+            },
+        )
 
     nb   = build_notebook(script, description, hardware)
     path = session.session_dir / "output" / "training_notebook.ipynb"
@@ -525,12 +565,14 @@ async def artifact_status(session_id: str):
         except Exception:
             pass
 
+    nb_path = output_dir / "training_notebook.ipynb"
     return {
-        "notebook"  : (output_dir / "training_notebook.ipynb").exists(),
-        "models"    : sorted(f.name for f in output_dir.glob("*.keras")),
-        "images"    : images,
-        "epochs_run": epochs_run,
-        "epochs_max": epochs_max,
+        "notebook"      : nb_path.exists(),
+        "notebook_mtime": nb_path.stat().st_mtime if nb_path.exists() else None,
+        "models"        : sorted(f.name for f in output_dir.glob("*.keras")),
+        "images"        : images,
+        "epochs_run"    : epochs_run,
+        "epochs_max"    : epochs_max,
     }
 
 

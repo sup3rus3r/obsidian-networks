@@ -37,6 +37,24 @@ Describe your problem, upload your data, and receive production-ready TensorFlow
 <img src="docs/images/demo_two.png" width="100%" alt="Obsidian Networks demo" />
 
 
+## TL;DR — Model Recommendations
+
+Based on initial testing across providers, model quality for this use case ranks as follows:
+
+**Claude (Anthropic) > GPT-4o (OpenAI) > Large local models via LM Studio**
+
+- **Claude** (Sonnet / Opus) produces the most thorough research — it reliably calls all research tools before writing code, follows multi-step instructions precisely, and generates clean, runnable training scripts with minimal patching needed.
+- **GPT-4o** performs well and follows tool-use instructions consistently, though it does less unprompted research than Claude.
+- **LM Studio** (local models) works best with larger models (13B+). Smaller models tend to skip research tool calls and occasionally produce scripts with minor syntax issues. The platform automatically patches the most common errors, but output quality is noticeably lower than cloud providers.
+
+If you are self-hosting for privacy or cost reasons, use the largest model your hardware supports. For best results, use Claude.
+
+### Self-Healing Scripts
+
+When a generated training script fails to compile, the platform automatically feeds the error message back to the AI model so it can diagnose and fix the problem — then regenerates the script and retries, without any manual intervention. This loop runs silently in the background; you will see the chat update with a fix and the compile button become available again once the corrected script is ready.
+
+---
+
 ## Table of Contents
 
 - [Why Obsidian Networks?](#why-obsidian-networks)
@@ -188,9 +206,8 @@ The notebook includes a **per-platform environment setup cell** at the top — n
 
 | Platform | What's included |
 |---|---|
-| **CPU (Windows/Linux/macOS)** | venv setup, Windows DLL fix for TensorFlow, pip install command |
-| **NVIDIA GPU** | `tensorflow[and-cuda]` install, GPU verification snippet |
-| **Apple Silicon (M1/M2/M3)** | `tensorflow-macos` + `tensorflow-metal` install |
+| **CPU (Linux / WSL2)** | venv setup, `tensorflow-cpu` install |
+| **NVIDIA GPU (Linux / WSL2)** | `tensorflow[and-cuda]` install, GPU verification snippet |
 | **Google Colab** | Pre-installed TF note, extra deps only |
 
 When you request changes to a model — new architecture, different optimizer, added dropout — the AI updates the full script and calls `create_notebook` again, overwriting the previous version so you always have the latest.
@@ -289,7 +306,7 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ### Local Development
 
-**Requirements:** Python 3.11+, [uv](https://docs.astral.sh/uv/), Node.js 18+, Redis (`sudo apt install redis` / `brew install redis`)
+**Requirements:** Linux or WSL2, Python 3.11+, [uv](https://docs.astral.sh/uv/), Node.js 18+, Redis (`sudo apt install redis`)
 
 ```bash
 git clone https://github.com/sup3rus3r/obsidian-networks.git
@@ -446,7 +463,7 @@ Each session's files are isolated in a per-session directory that no other sessi
 - LSTM, Stacked LSTM, and Temporal Fusion Transformer architecture selection
 - Correct `timeseries_dataset_from_array` windowing (no data leakage)
 - `energy_consumption_sample.csv` sample dataset included
-- Notebook environment setup cells added for Windows, NVIDIA GPU, Apple Silicon, and Google Colab
+- Notebook environment setup cells added for Linux/WSL2 CPU, NVIDIA GPU, and Google Colab
 
 ### v0.2.0 — Training Metrics Visualisation
 - Live loss/accuracy chart appears inline during compilation, streamed epoch-by-epoch via SSE

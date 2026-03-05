@@ -46,7 +46,9 @@ export function getModel() {
         // LM Studio doesn't validate the key, but the SDK requires a non-empty value
         apiKey : process.env.LMSTUDIO_API_KEY ?? 'lm-studio',
       })
-      return lmstudio(modelId)
+      // LM Studio only supports v1/chat/completions, not the newer v1/responses API.
+      // extractReasoningMiddleware in route.ts handles <think> tags from reasoning models.
+      return lmstudio.chat(modelId)
     }
 
     case 'anthropic':
