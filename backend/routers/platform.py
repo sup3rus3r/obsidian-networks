@@ -5,10 +5,13 @@ SSE job progress, and file downloads.
 import asyncio
 import io
 import json
+import logging
 import os
 import re
 import time
 import uuid
+
+logger = logging.getLogger(__name__)
 from pathlib import Path
 
 import pandas as pd
@@ -507,14 +510,27 @@ async def create_notebook(session_id: str, payload: dict):
         raise HTTPException(status_code=400, detail="Script cannot be empty")
 
     # Apply all worker patches so the notebook matches what actually ran
+    from tasks import (
+        patch_live_data_sources, patch_dataset_filename, patch_keras_mistakes,
+        patch_load_data_missing_return, patch_synthetic_data_fallback,
+        patch_categorical_encoding, patch_df_none_guard, patch_safe_concatenate,
+        patch_normalizer_name, patch_tf_float_cast,
+    )
+    script = patch_live_data_sources(script)
+    script = patch_dataset_filename(script)
     script = patch_keras_mistakes(script)
+    script = patch_load_data_missing_return(script)
+    script = patch_synthetic_data_fallback(script)
     script = patch_categorical_encoding(script)
+    script = patch_df_none_guard(script)
     script = patch_safe_concatenate(script)
     script = patch_normalizer_name(script)
+    script = patch_tf_float_cast(script)
 
     # Validate — return errors as 422 so the AI tool caller sees them and retries
     validation_errors = _validate_script(script)
     if validation_errors:
+        logger.warning("Script validation failed for session %s: %s", session_id, validation_errors)
         raise HTTPException(
             status_code=422,
             detail={
@@ -709,3 +725,122 @@ async def trigger_compilation(session_id: str):
     session.task_id = task.id
 
     return {"task_id": task.id, "status": "queued"}
+
+
+@router.get("/script/{session_id}")
+async def read_script(session_id: str):
+    """Return the current generated_script.py content with line numbers."""
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or expired")
+    script_path = session.session_dir / "generated_script.py"
+    if not script_path.exists():
+        raise HTTPException(status_code=404, detail="No script found for this session")
+    lines = script_path.read_text().splitlines()
+    numbered = '\n'.join(f"{i+1:4}: {l}" for i, l in enumerate(lines))
+    return {"content": numbered, "line_count": len(lines)}
+
+
+@router.post("/edit_script/{session_id}")
+async def edit_script(session_id: str, payload: dict):
+    """Replace an exact string in the current script (like a str-replace editor).
+
+    Payload: { "old_str": "...", "new_str": "..." }
+    Fails if old_str is not found or matches more than once.
+    """
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or expired")
+    script_path = session.session_dir / "generated_script.py"
+    if not script_path.exists():
+        raise HTTPException(status_code=404, detail="No script found for this session")
+
+    old_str = payload.get("old_str", "")
+    new_str = payload.get("new_str", "")
+    if not old_str:
+        raise HTTPException(status_code=400, detail="old_str cannot be empty")
+
+    code = script_path.read_text()
+    count = code.count(old_str)
+    if count == 0:
+        return {"ok": False, "error": "old_str not found in script. Check the exact text including whitespace."}
+    if count > 1:
+        return {"ok": False, "error": f"old_str matches {count} locations — make it more specific."}
+
+    new_code = code.replace(old_str, new_str, 1)
+    try:
+        validate_code(new_code)
+    except ValueError as e:
+        return {"ok": False, "error": f"Edit introduces a security violation: {e}"}
+
+    script_path.write_text(new_code)
+    return {"ok": True, "message": "Script updated successfully."}
+
+
+@router.post("/run_code/{session_id}")
+async def run_code(session_id: str, payload: dict):
+    """Execute a Python snippet in the session directory and return stdout/stderr.
+
+    Used by the AI to test data loading, inspect column names, verify shapes,
+    and validate the script incrementally before calling create_notebook.
+    Runs synchronously with a 30-second timeout in a restricted subprocess.
+    """
+    import asyncio
+    import subprocess as _sp
+
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or expired")
+
+    code = payload.get("code", "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="code cannot be empty")
+
+    # Hard limit on snippet size — not a full training script
+    if len(code) > 8000:
+        raise HTTPException(status_code=400, detail="Snippet too large (max 8000 chars). Use create_notebook for full scripts.")
+
+    # Security: run through the same import allowlist as full scripts
+    try:
+        validate_code(code)
+    except ValueError as e:
+        return {"stdout": "", "stderr": str(e), "exit_code": 1}
+
+    safe_env = {
+        "PATH"           : "/usr/local/bin:/usr/bin:/bin",
+        "PYTHONUNBUFFERED": "1",
+        "HOME"           : str(session.session_dir),
+    }
+
+    snippet_path = session.session_dir / "_snippet.py"
+    snippet_path.write_text(code)
+
+    try:
+        proc = await asyncio.wait_for(
+            asyncio.create_subprocess_exec(
+                "python3", "-u", str(snippet_path),
+                stdout=_sp.PIPE,
+                stderr=_sp.STDOUT,
+                cwd=str(session.session_dir),
+                env=safe_env,
+            ),
+            timeout=30,
+        )
+        stdout_bytes, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+        stdout = stdout_bytes.decode(errors="replace")
+        exit_code = proc.returncode
+    except asyncio.TimeoutError:
+        stdout   = "TimeoutError: snippet exceeded 30 second limit"
+        exit_code = 1
+    except Exception as e:
+        stdout   = f"Error running snippet: {e}"
+        exit_code = 1
+    finally:
+        snippet_path.unlink(missing_ok=True)
+
+    # Truncate very long output
+    lines = stdout.splitlines()
+    if len(lines) > 200:
+        stdout = '\n'.join(lines[:200]) + f'\n... ({len(lines) - 200} more lines truncated)'
+
+    return {"stdout": stdout, "exit_code": exit_code}

@@ -196,6 +196,80 @@ const researchTools = {
   }),
 }
 
+function createScriptTools(sessionId: string | null) {
+  const apiBase = process.env.INTERNAL_API_URL ?? 'http://localhost:8000'
+
+  const run_code = tool({
+    description:
+      'Execute a Python snippet in the session working directory and return the output. ' +
+      'Use this to test data loading, inspect column names/shapes/dtypes, and validate ' +
+      'logic before writing the full script. Has access to dataset.csv and all installed packages. ' +
+      '30-second timeout — not for full training runs.',
+    inputSchema: z.object({
+      code: z.string().describe('Python snippet to execute'),
+    }),
+    execute: async (input: { code: string }) => {
+      if (!sessionId) return { stdout: 'No active session.', exit_code: 1 }
+      try {
+        const res  = await fetch(`${apiBase}/platform/run_code/${sessionId}`, {
+          method : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body   : JSON.stringify({ code: input.code }),
+          signal : AbortSignal.timeout(35_000),
+        })
+        return await res.json()
+      } catch (e) {
+        return { stdout: String(e), exit_code: 1 }
+      }
+    },
+  })
+
+  const read_script = tool({
+    description:
+      'Read the current generated_script.py with line numbers. ' +
+      'Use this after a compile failure to inspect the exact code before editing.',
+    inputSchema: z.object({}),
+    execute: async () => {
+      if (!sessionId) return { error: 'No active session.' }
+      try {
+        const res = await fetch(`${apiBase}/platform/script/${sessionId}`, {
+          signal: AbortSignal.timeout(10_000),
+        })
+        return await res.json()
+      } catch (e) {
+        return { error: String(e) }
+      }
+    },
+  })
+
+  const edit_script = tool({
+    description:
+      'Replace an exact string in the current script — like a str-replace editor. ' +
+      'Use this to fix specific errors after read_script + run_code identify the problem. ' +
+      'old_str must match exactly once including whitespace and indentation.',
+    inputSchema: z.object({
+      old_str: z.string().describe('Exact text to replace (must be unique in the script)'),
+      new_str: z.string().describe('Replacement text'),
+    }),
+    execute: async (input: { old_str: string; new_str: string }) => {
+      if (!sessionId) return { ok: false, error: 'No active session.' }
+      try {
+        const res = await fetch(`${apiBase}/platform/edit_script/${sessionId}`, {
+          method : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body   : JSON.stringify(input),
+          signal : AbortSignal.timeout(10_000),
+        })
+        return await res.json()
+      } catch (e) {
+        return { ok: false, error: String(e) }
+      }
+    },
+  })
+
+  return { run_code, read_script, edit_script }
+}
+
 function createNotebookTool(sessionId: string | null) {
   const apiBase = process.env.INTERNAL_API_URL ?? 'http://localhost:8000'
 
@@ -268,11 +342,17 @@ Your purpose is to help users design, research, and generate production-ready de
 </role>
 
 <context>
-You have four tools available:
+You have these tools available:
+Research:
 - search_tensorflow_docs: Search TF/Keras docs for current API signatures
 - fetch_arxiv_papers: Find recent papers relevant to the user's problem domain
 - fetch_url: Read full content of pages on tensorflow.org, keras.io, arxiv.org, paperswithcode.com, huggingface.co
-- create_notebook: Save the final training script as a downloadable .ipynb notebook
+
+Script development (use these to iteratively build and verify the script):
+- run_code: Execute a Python snippet in the session directory (has access to dataset.csv). Use to inspect data, test logic, verify shapes before writing the full script.
+- read_script: Read the current generated_script.py with line numbers.
+- edit_script: Replace an exact string in the script (str-replace). Use to fix specific errors without rewriting from scratch.
+- create_notebook: Save the final script as a downloadable .ipynb. Only call this once the script is verified working.
 </context>
 
 <behaviour>
@@ -293,13 +373,16 @@ CRITICAL — follow this decision tree on EVERY user message:
    → STEP 4 (MANDATORY): Call fetch_url on the single most relevant paper URL from steps 1–2 to read its full text (methods, architecture, hyperparameters). This is the primary source for your implementation — always do this, not just when uncertain.
    → Only AFTER all research tool calls are complete, proceed:
    → STEP 5: Analyse the schema: task type, target column, class balance, preprocessing needs
-   → STEP 6: Write the complete script and pass it DIRECTLY to create_notebook — do NOT print or show the script in your chat reply
-   → STEP 7: If create_notebook returns errors, fix ALL listed errors in the script and call create_notebook again. Repeat until it succeeds.
-   → STEP 8: After create_notebook succeeds, write a SHORT chat reply (3–6 bullet points max) summarising: architecture chosen, why (citing specific papers), key hyperparameters, and what the user should expect. No code in the reply.
+   → STEP 6: Use run_code to verify the dataset loads correctly and inspect columns/shapes:
+       run_code("import pandas as pd; df = pd.read_csv('dataset.csv'); print(df.shape); print(df.dtypes); print(df.head(2))")
+   → STEP 7: Write the complete script and pass it DIRECTLY to create_notebook — do NOT print or show the script in your chat reply
+   → STEP 8: If create_notebook returns validation errors, use read_script to read the script, then edit_script to fix the specific error. Call create_notebook again. Repeat until it succeeds. Do NOT rewrite from scratch.
+   → STEP 9: After create_notebook succeeds, write a SHORT chat reply (3–6 bullet points max) summarising: architecture chosen, why (citing specific papers), key hyperparameters, and what the user should expect. No code in the reply.
 
 3. USER ASKS TO CHANGE/IMPROVE THE MODEL?
    → Call fetch_arxiv_papers with a query specific to the requested change before modifying the script.
-   → Incorporate changes into the full script, call create_notebook again to overwrite.
+   → Use read_script to read the current script, then edit_script to apply targeted changes. Do NOT rewrite the whole script.
+   → Call create_notebook to save the updated script.
    → Reply with 2–3 sentences describing what changed and which paper motivated it. No code in the reply.
 
 4. GENERAL KERAS/TF QUESTION (no dataset, no code request)?
@@ -435,8 +518,8 @@ export async function POST(req: Request) {
     model          : model,
     system         : SYSTEM,
     messages       : modelMessages,
-    tools          : { ...researchTools, create_notebook: createNotebookTool(sessionId) },
-    stopWhen       : stepCountIs(10),
+    tools          : { ...researchTools, ...createScriptTools(sessionId), create_notebook: createNotebookTool(sessionId) },
+    stopWhen       : stepCountIs(25),
     // Anthropic: cache the system prompt + auto-clear old tool uses when context grows large.
     // cacheControl marks the system prompt for ephemeral caching (reduces cost + TPM usage).
     // contextManagement clears old tool-use results at 60k tokens, keeping last 3 tool turns.

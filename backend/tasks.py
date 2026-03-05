@@ -1,9 +1,12 @@
 import ast
+import logging
 import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -799,12 +802,16 @@ def patch_tf_float_cast(code: str) -> str:
         code,
     )
 
-    # Inject helper after imports
+    # Inject helper after the last TOP-LEVEL import only.
+    # Indented imports inside Obsidian-injected helpers must be ignored —
+    # only match lines with no leading whitespace, and stop at the first
+    # injected block to avoid inserting inside it.
     lines = code.splitlines(keepends=True)
     insert_idx = 0
     for i, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith('import ') or stripped.startswith('from '):
+        if 'injected by Obsidian' in line or '_obsidian_encode_cats' in line:
+            break
+        if (line.startswith('import ') or line.startswith('from ')):
             insert_idx = i + 1
     code = ''.join(lines[:insert_idx]) + _HELPER + ''.join(lines[insert_idx:])
 
@@ -923,6 +930,7 @@ def run_compilation_task(self, session_id: str) -> dict:
         raise FileNotFoundError("No generated script found for this session")
 
     code = script_path.read_text()
+    logger.info("[patch] original load block (lines 1-80):\n%s", '\n'.join(code.splitlines()[:80]))
     validate_code(code)
     code = patch_live_data_sources(code)
     code = patch_dataset_filename(code)
