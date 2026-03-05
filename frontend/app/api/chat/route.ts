@@ -180,18 +180,37 @@ const researchTools = {
       if (!isAllowedUrl(input.url)) {
         return { error: `Domain not allowed. Permitted: ${ALLOWED_DOMAINS.join(', ')}` }
       }
-      // arXiv abstract pages contain only the abstract — rewrite to HTML full-text
-      const url = input.url.replace(
-        /^(https?:\/\/arxiv\.org\/)abs\//,
-        '$1html/'
-      )
-      try {
-        const html    = await fetchText(url)
-        const content = wordTruncate(htmlToText(html), 12000)
-        return { url, content }
-      } catch (err) {
-        return { url, error: String(err) }
+      // arXiv: try full HTML render first, fall back to abstract page if unavailable
+      const isArxivAbs = /^https?:\/\/arxiv\.org\/abs\//.test(input.url)
+
+      async function tryFetch(url: string): Promise<string | null> {
+        try {
+          const text = await fetchText(url)
+          if (text.includes('No HTML for') || text.includes('HTML is not available')) return null
+          return text
+        } catch { return null }
       }
+
+      let fetchedUrl = input.url
+      let raw: string | null = null
+
+      if (isArxivAbs) {
+        const htmlUrl = input.url.replace('/abs/', '/html/')
+        raw = await tryFetch(htmlUrl)
+        if (raw) {
+          fetchedUrl = htmlUrl
+        } else {
+          // HTML not available for this paper — fall back to abstract page
+          raw = await tryFetch(input.url)
+          fetchedUrl = input.url
+        }
+      } else {
+        raw = await tryFetch(input.url)
+      }
+
+      if (!raw) return { url: fetchedUrl, error: 'Could not fetch page.' }
+      const content = wordTruncate(htmlToText(raw), 12000)
+      return { url: fetchedUrl, content }
     },
   }),
 }
