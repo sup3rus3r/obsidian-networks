@@ -615,10 +615,16 @@ def patch_dataset_filename(code: str) -> str:
     context (e.g. 'ohlcv_data.csv', 'heart_failure_dataset.csv').
     """
     # Rewrite pd.read_csv("anything.csv") → pd.read_csv("dataset.csv")
-    # Skip paths that already have a directory component — these are derived files
-    # (e.g. "output/training_data.csv") that the script itself created and intends to read back.
+    # Skip paths that already have a directory component UNLESS it's output/dataset.csv
+    # (output/ is never a valid location for the input dataset — the script created it wrong)
     code = re.sub(
         r'''(pd\.read_csv\s*\(\s*)(['"])(?!dataset\.csv\b)(?![^'"]*[/\\])[^'"]+\.csv\2''',
+        r'''\g<1>\g<2>dataset.csv\g<2>''',
+        code,
+    )
+    # Also rewrite output/dataset.csv → dataset.csv (common model mistake)
+    code = re.sub(
+        r'''(pd\.read_csv\s*\(\s*)(['"])output/dataset\.csv\2''',
         r'''\g<1>\g<2>dataset.csv\g<2>''',
         code,
     )
@@ -629,7 +635,13 @@ def patch_dataset_filename(code: str) -> str:
         code,
     )
     # Also fix bare DATA_PATH / FILE_PATH / CSV_PATH string assignments
-    # Skip if the value already contains a path separator (derived file reference)
+    # Skip if the value already contains a path separator (derived file reference),
+    # but always fix output/dataset.csv → dataset.csv
+    code = re.sub(
+        r'''((?:DATA_PATH|FILE_PATH|CSV_PATH|data_path|file_path|csv_path)\s*=\s*)(['"])output/dataset\.(csv|json)\2''',
+        lambda m: f'{m.group(1)}{m.group(2)}dataset.{m.group(3)}{m.group(2)}',
+        code,
+    )
     code = re.sub(
         r'''((?:DATA_PATH|FILE_PATH|CSV_PATH|data_path|file_path|csv_path)\s*=\s*)(['"])(?!dataset\.)(?![^'"]*[/\\])[^'"]+\.(csv|json)\2''',
         lambda m: f'{m.group(1)}{m.group(2)}dataset.{m.group(3)}{m.group(2)}',

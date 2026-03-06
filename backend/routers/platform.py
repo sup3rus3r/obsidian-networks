@@ -679,14 +679,10 @@ async def download_image(session_id: str, filename: str):
 async def revoke_task(task_id: str):
     """Revoke a running Celery task and flush the queue so no queued tasks run after it."""
     from celery.result import AsyncResult
-    import asyncio
     try:
         AsyncResult(task_id, app=celery_app).revoke(terminate=True, signal="SIGKILL")
     except Exception:
         pass
-    # Purge immediately and again after 2s (worker may re-queue on SIGKILL)
-    await _flush_celery_queue()
-    await asyncio.sleep(2)
     await _flush_celery_queue()
     return {"ok": True}
 
