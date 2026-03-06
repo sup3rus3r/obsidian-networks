@@ -764,6 +764,18 @@ export function ArtifactPanel({ sessionId, onCompileError }: ArtifactPanelProps)
               <span className="text-[10px] text-zinc-600">Saving plots…</span>
             </div>
           )}
+          {sessionId && (status.models.length > 0 || status.datasets.length > 0 || status.images.length > 0 || status.notebook) && (
+            <button
+              className="ml-auto text-[10px] text-zinc-600 hover:text-red-400 transition-colors"
+              onClick={async () => {
+                if (!confirm('Clear all output files?')) return
+                await fetch(`/api/platform/outputs/${sessionId}`, { method: 'DELETE' })
+                onCompileSuccess() // refresh status
+              }}
+            >
+              Clear all
+            </button>
+          )}
         </div>
         {sessionId
           ? <DownloadsSection sessionId={sessionId} status={status} />

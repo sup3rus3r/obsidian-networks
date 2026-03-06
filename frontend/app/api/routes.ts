@@ -22,4 +22,5 @@ export const AppRoutes = {
   DownloadNotebook:   (sid: string) => `/api/platform/download/${sid}/notebook`,
   ViewImage:          (sid: string, filename: string) => `/api/platform/download/${sid}/image/${filename}`,
   TriggerCompile:     (sid: string) => `/api/platform/compile/${sid}`,
+  ClearOutputs:       (sid: string) => `/api/platform/outputs/${sid}`,
 }

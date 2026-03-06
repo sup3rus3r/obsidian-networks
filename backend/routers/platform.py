@@ -840,6 +840,20 @@ async def trigger_compilation(session_id: str):
     return {"task_id": task.id, "status": "queued"}
 
 
+@router.delete("/outputs/{session_id}")
+async def clear_outputs(session_id: str):
+    """Delete all generated output files (models, plots, datasets) for this session."""
+    import shutil
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or expired")
+    output_dir = session.session_dir / "output"
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+        output_dir.mkdir()
+    return {"ok": True}
+
+
 @router.get("/script/{session_id}")
 async def read_script(session_id: str):
     """Return the current generated_script.py content with line numbers."""
