@@ -677,34 +677,29 @@ async def download_image(session_id: str, filename: str):
 
 @router.post("/revoke/{task_id}")
 async def revoke_task(task_id: str):
-    """Revoke a running Celery task and flush the queue so no queued tasks run after it."""
-    from celery.result import AsyncResult
-    try:
-        AsyncResult(task_id, app=celery_app).revoke(terminate=True, signal="SIGKILL")
-    except Exception:
-        pass
-    await _flush_celery_queue()
+    """Kill all running/queued Celery work by flushing Redis and restarting the worker."""
+    await _kill_all_work()
     return {"ok": True}
 
 
 @router.post("/purge-queue")
 async def purge_queue():
     """Flush all pending Celery tasks from the queue (called on New Session)."""
-    await _flush_celery_queue()
+    await _kill_all_work()
     return {"ok": True}
 
 
-async def _flush_celery_queue():
-    """Reliably flush Celery queue via both control.purge() and direct Redis DEL."""
+async def _kill_all_work():
+    """Signal the worker to kill its subprocess and flush the Celery queue."""
+    import redis as _redis
+    r = _redis.from_url(celery_app.conf.broker_url)
+    # 1. Set stop flag — worker checks this every stdout line and kills its subprocess
     try:
-        celery_app.control.purge()
+        r.set("worker:stop", "1", ex=30)
     except Exception:
         pass
+    # 2. Flush the Celery queue so no queued tasks run next
     try:
-        # Direct Redis DEL is more reliable — catches tasks re-queued after SIGKILL
-        redis_url = celery_app.conf.broker_url
-        import redis as _redis
-        r = _redis.from_url(redis_url)
         r.delete("celery")
     except Exception:
         pass

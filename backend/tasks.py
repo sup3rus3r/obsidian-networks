@@ -1214,8 +1214,27 @@ def run_compilation_task(self, session_id: str) -> dict:
             meta["detail"] = last_detail
         self.update_state(state="PROGRESS", meta=meta)
 
+    # Connect to Redis for stop-flag polling
+    try:
+        import redis as _redis
+        from celery_app import celery_app as _capp
+        _stop_redis = _redis.from_url(_capp.conf.broker_url)
+        _stop_redis.delete("worker:stop")  # clear any stale flag from previous run
+    except Exception:
+        _stop_redis = None
+
     try:
         for raw_line in proc.stdout:  # type: ignore[union-attr]
+            # Check stop flag — set by the revoke endpoint
+            if _stop_redis:
+                try:
+                    if _stop_redis.get("worker:stop"):
+                        proc.kill()
+                        _stop_redis.delete("worker:stop")
+                        return {"stopped": True}
+                except Exception:
+                    pass
+
             line = raw_line.rstrip()
             stdout_lines.append(line)
 

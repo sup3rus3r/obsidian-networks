@@ -154,9 +154,22 @@ const researchTools = {
           `site:keras.io OR site:tensorflow.org/api_docs ${input.query}`,
           3
         )
-        return { query: input.query, results }
+        // Auto-fetch the top result to get actual API content, not just snippets
+        let topContent: string | null = null
+        for (const r of results) {
+          if (isAllowedUrl(r.url)) {
+            try {
+              const raw = await fetchText(r.url)
+              if (raw) {
+                topContent = wordTruncate(htmlToText(raw), 4000)
+                break
+              }
+            } catch { /* skip, return snippets only */ }
+          }
+        }
+        return { query: input.query, results, topContent }
       } catch (err) {
-        return { query: input.query, results: [] as SearchResult[], error: String(err) }
+        return { query: input.query, results: [] as SearchResult[], topContent: null, error: String(err) }
       }
     },
   }),
