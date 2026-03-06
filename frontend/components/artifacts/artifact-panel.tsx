@@ -229,6 +229,7 @@ interface CompileState {
   phase   : 'idle' | 'running' | 'fixing' | 'error'
   progress: number
   step    : string
+  detail  : string | null
   error   : string | null
 }
 
@@ -386,19 +387,20 @@ function CompileRunningState({
       {stageIdx === 5 && (
         <div className="flex items-center gap-1.5">
           <Loader2 className="h-3 w-3 text-zinc-600 animate-spin" />
-          <span className="text-[10px] text-zinc-600 animate-pulse">
-            {compile.step || 'Evaluating & saving outputs…'}
+          <span className="text-[10px] text-zinc-600 animate-pulse font-mono truncate max-w-[480px]">
+            {compile.detail || compile.step || 'Evaluating & saving outputs…'}
           </span>
         </div>
       )}
       {isEarlyStage && metrics.length === 0 && (
         <div className="flex items-center gap-1.5">
           <Loader2 className="h-3 w-3 text-zinc-600 animate-spin" />
-          <span className="text-[10px] text-zinc-600 animate-pulse">
-            {stageIdx === 0 ? 'Waiting for worker…' :
-             stageIdx === 1 ? 'Initialising runtime, this can take 30–60s…' :
-             stageIdx === 2 ? `${compile.step || 'Preprocessing data…'}` :
-             compile.step || 'Building model…'}
+          <span className="text-[10px] text-zinc-600 animate-pulse font-mono truncate max-w-[480px]">
+            {compile.detail ||
+             (stageIdx === 0 ? 'Waiting for worker…' :
+              stageIdx === 1 ? 'Initialising runtime, this can take 30–60s…' :
+              stageIdx === 2 ? (compile.step || 'Preprocessing data…') :
+              compile.step || 'Building model…')}
           </span>
         </div>
       )}
@@ -421,7 +423,7 @@ function CompileSection({
   onCompileError   : (error: string) => void
 }) {
   const [compile, setCompile] = useState<CompileState>({
-    phase: 'idle', progress: 0, step: '', error: null,
+    phase: 'idle', progress: 0, step: '', detail: null, error: null,
   })
   const [metrics, setMetrics] = useState<EpochMetrics[]>([])
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -444,7 +446,7 @@ function CompileSection({
       setCompile(c => {
         if (c.phase === 'fixing') {
           setTimeout(() => startCompileRef.current?.(), 0)
-          return { phase: 'idle', progress: 0, step: '', error: null }
+          return { phase: 'idle', progress: 0, step: '', detail: null, error: null }
         }
         return c
       })
@@ -471,7 +473,7 @@ function CompileSection({
 
   const startCompile = async () => {
     setWasStarted(true)
-    setCompile({ phase: 'running', progress: 0, step: 'Queuing…', error: null })
+    setCompile({ phase: 'running', progress: 0, step: 'Queuing…', detail: null, error: null })
     setMetrics([])
 
     const result = await triggerCompile(sessionId)
@@ -505,13 +507,14 @@ function CompileSection({
           const errMsg = data.error ?? 'Compilation failed'
           // Snapshot mtime now — only recompile when mtime advances beyond this point
           fixingMtimeRef.current = status.notebook_mtime
-          setCompile({ phase: 'fixing', progress: 0, step: '', error: errMsg })
+          setCompile({ phase: 'fixing', progress: 0, step: '', detail: null, error: errMsg })
           onCompileError(errMsg)
         } else {
           setCompile(prev => ({
             ...prev,
             progress: data.progress ?? prev.progress,
             step    : data.step    ?? prev.step,
+            detail  : data.detail  ?? prev.detail ?? null,
           }))
           if (data.metrics) {
             setMetrics(prev => [...prev, data.metrics!])
@@ -531,7 +534,7 @@ function CompileSection({
     const tid = taskIdRef.current
     taskIdRef.current = null
     fixingMtimeRef.current = null
-    setCompile({ phase: 'idle', progress: 0, step: '', error: null })
+    setCompile({ phase: 'idle', progress: 0, step: '', detail: null, error: null })
     if (tid) {
       try { await fetch(`/api/platform/revoke/${tid}`, { method: 'POST' }) } catch { /* best-effort */ }
     }
@@ -577,7 +580,7 @@ function CompileSection({
             </div>
             <p className="text-[11px] text-zinc-500 leading-relaxed line-clamp-3">{compile.error}</p>
             <button
-              onClick={() => { fixingMtimeRef.current = null; setCompile({ phase: 'idle', progress: 0, step: '', error: null }) }}
+              onClick={() => { fixingMtimeRef.current = null; setCompile({ phase: 'idle', progress: 0, step: '', detail: null, error: null }) }}
               className="cursor-pointer text-[10px] text-zinc-600 underline hover:text-zinc-400"
             >
               Cancel auto-fix
@@ -592,7 +595,7 @@ function CompileSection({
               <p className="text-xs text-red-300">{compile.error}</p>
             </div>
             <button
-              onClick={() => setCompile({ phase: 'idle', progress: 0, step: '', error: null })}
+              onClick={() => setCompile({ phase: 'idle', progress: 0, step: '', detail: null, error: null })}
               className="cursor-pointer text-[10px] text-zinc-500 underline hover:text-zinc-300"
             >
               Dismiss and retry

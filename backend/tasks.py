@@ -1189,21 +1189,35 @@ def run_compilation_task(self, session_id: str) -> dict:
     metrics_log:  list[dict] = []
     tf_loaded      = False
     preprocessing  = False
+    last_detail    = ""   # last meaningful stdout line shown as subtitle in UI
+
+    # Lines that are too noisy/generic to show as detail
+    _DETAIL_SKIP = re.compile(
+        r'^(=+|-+|─+|╔|╗|║|╚|╝|\s*$|Traceback|File "|  File )'
+    )
+
+    def _update(step: str, progress: int, **extra) -> None:
+        meta: dict = {"step": step, "progress": progress, **extra}
+        if last_detail:
+            meta["detail"] = last_detail
+        self.update_state(state="PROGRESS", meta=meta)
 
     try:
         for raw_line in proc.stdout:  # type: ignore[union-attr]
             line = raw_line.rstrip()
             stdout_lines.append(line)
 
+            # Track last meaningful line for UI subtitle
+            stripped = line.strip()
+            if stripped and not _DETAIL_SKIP.match(line):
+                last_detail = stripped[:120]  # cap length
+
             # TensorFlow startup messages — show loading state until first epoch
             if not tf_loaded and not current_epoch:
                 low = line.lower()
                 if any(tok in low for tok in ("tensorflow", "keras", "cuda", "gpu", "cpu", "using")):
                     tf_loaded = True
-                    self.update_state(state="PROGRESS", meta={
-                        "step"    : "Loading TensorFlow…",
-                        "progress": 8,
-                    })
+                    _update("Loading TensorFlow…", 8)
                     continue
 
             # Preprocessing / data loading — detect common script output patterns
@@ -1215,10 +1229,7 @@ def run_compilation_task(self, session_id: str) -> dict:
                     "extracting", "preparing", "train:", "val:", "test:",
                 )):
                     preprocessing = True
-                    self.update_state(state="PROGRESS", meta={
-                        "step"    : "Preprocessing data…",
-                        "progress": 13,
-                    })
+                    _update("Preprocessing data…", 13)
 
             # Detect "[STAGE N]" or "[N]" or "[N/N]" style section headers from custom scripts
             stage_m = re.match(r'\[(?:STAGE\s+)?(\d+)(?:/\d+)?\]', line)
@@ -1226,20 +1237,11 @@ def run_compilation_task(self, session_id: str) -> dict:
                 stage_num = int(stage_m.group(1))
                 if stage_num == 1:
                     preprocessing = True
-                    self.update_state(state="PROGRESS", meta={
-                        "step"    : "Preprocessing data…",
-                        "progress": 13,
-                    })
+                    _update("Preprocessing data…", 13)
                 elif stage_num == 2:
-                    self.update_state(state="PROGRESS", meta={
-                        "step"    : "Building model…",
-                        "progress": 22,
-                    })
+                    _update("Building model…", 22)
                 elif stage_num >= 3:
-                    self.update_state(state="PROGRESS", meta={
-                        "step"    : "Building model…",
-                        "progress": 24,
-                    })
+                    _update("Building model…", 24)
                 continue
 
             # Detect box-style epoch headers: ╔══ EPOCH   1/50 ══╗  OR  Update 1/50
@@ -1248,10 +1250,7 @@ def run_compilation_task(self, session_id: str) -> dict:
                 current_epoch = int(box_epoch_m.group(1))
                 total_epochs  = int(box_epoch_m.group(2))
                 progress = max(26, min(90, int(26 + 64 * (current_epoch - 1) / max(total_epochs, 1))))
-                self.update_state(state="PROGRESS", meta={
-                    "step"    : f"Epoch {current_epoch}/{total_epochs}",
-                    "progress": progress,
-                })
+                _update(f"Epoch {current_epoch}/{total_epochs}", progress)
                 continue
 
             # Detect "Epoch N/T" header
@@ -1260,15 +1259,9 @@ def run_compilation_task(self, session_id: str) -> dict:
                 current_epoch = int(em.group(1))
                 total_epochs  = int(em.group(2))
                 if current_epoch == 1:
-                    self.update_state(state="PROGRESS", meta={
-                        "step"    : "Building model…",
-                        "progress": 22,
-                    })
+                    _update("Building model…", 22)
                 progress = max(18, min(90, int(18 + 72 * (current_epoch - 1) / max(total_epochs, 1))))
-                self.update_state(state="PROGRESS", meta={
-                    "step"    : f"Epoch {current_epoch}/{total_epochs}",
-                    "progress": progress,
-                })
+                _update(f"Epoch {current_epoch}/{total_epochs}", progress)
                 continue
 
             # Detect metric line
@@ -1276,20 +1269,13 @@ def run_compilation_task(self, session_id: str) -> dict:
             if metrics:
                 metrics_log.append(metrics)
                 progress = max(18, min(90, int(18 + 72 * current_epoch / max(total_epochs, 1))))
-                self.update_state(state="PROGRESS", meta={
-                    "step"    : f"Epoch {current_epoch}/{total_epochs}",
-                    "progress": progress,
-                    "metrics" : metrics,
-                })
+                _update(f"Epoch {current_epoch}/{total_epochs}", progress, metrics=metrics)
                 continue
 
             # Post-training output (evaluation, plot generation, etc.)
             # Any non-empty line after we've seen at least one epoch = still working
             if current_epoch and line.strip():
-                self.update_state(state="PROGRESS", meta={
-                    "step"    : "Evaluating & saving outputs…",
-                    "progress": 91,
-                })
+                _update("Evaluating & saving outputs…", 91)
     except Exception:
         pass
 
