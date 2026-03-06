@@ -1,6 +1,7 @@
 import { streamText, convertToModelMessages, pruneMessages, tool, stepCountIs, wrapLanguageModel, extractReasoningMiddleware, type UIMessage } from 'ai'
 import { z } from 'zod'
 import { getModel, getProvider } from '@/lib/model'
+import { PDFParse } from 'pdf-parse'
 
 export const runtime = 'nodejs'
 export const maxDuration = 120
@@ -20,6 +21,22 @@ async function fetchText(url: string): Promise<string> {
     signal : AbortSignal.timeout(FETCH_TIMEOUT),
   })
   return res.text()
+}
+
+async function fetchPdfText(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; obsidian-networks-research/1.0)' },
+      signal : AbortSignal.timeout(30_000),
+    })
+    if (!res.ok) return null
+    const buf = Buffer.from(await res.arrayBuffer())
+    const parser = new PDFParse({ data: buf })
+    const result = await parser.getText()
+    return result.text ?? null
+  } catch {
+    return null
+  }
 }
 
 function htmlToText(html: string): string {
@@ -200,7 +217,14 @@ const researchTools = {
         if (raw) {
           fetchedUrl = htmlUrl
         } else {
-          // HTML not available for this paper — fall back to abstract page
+          // HTML not available — try PDF text extraction
+          const pdfUrl = input.url.replace('/abs/', '/pdf/')
+          const pdfText = await fetchPdfText(pdfUrl)
+          if (pdfText) {
+            const content = wordTruncate(pdfText.replace(/\s+/g, ' ').trim(), 12000)
+            return { url: pdfUrl, content }
+          }
+          // PDF failed too — fall back to abstract page
           raw = await tryFetch(input.url)
           fetchedUrl = input.url
         }
