@@ -291,7 +291,47 @@ No external services required beyond your LLM API key.
 |------|---------|---------|
 | [Docker](https://docs.docker.com/get-docker/) | Latest | Container runtime |
 | [Docker Compose](https://docs.docker.com/compose/) | v2+ | Multi-service orchestration |
+| [Git](https://git-scm.com/downloads) | Any | Clone the repository |
 | LLM API key | — | Anthropic, OpenAI, or LM Studio |
+
+#### Install Docker
+
+**Windows / macOS** — Download and install [Docker Desktop](https://www.docker.com/products/docker-desktop/). Docker Compose is included.
+
+**Ubuntu / Debian:**
+```bash
+sudo apt update
+sudo apt install -y ca-certificates curl gnupg
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+sudo usermod -aG docker $USER   # log out and back in after this
+```
+
+**Arch Linux:**
+```bash
+sudo pacman -S docker docker-compose
+sudo systemctl enable --now docker
+sudo usermod -aG docker $USER
+```
+
+Verify the install:
+```bash
+docker --version
+docker compose version
+```
+
+#### Build the base image (one-time setup)
+
+Before running the app for the first time, build the worker base image. This installs all Python ML dependencies (TensorFlow, Keras, etc.) and takes 5–10 minutes once:
+
+```bash
+docker build -f backend/Dockerfile.base -t obsidian-webdev-base:latest backend/
+```
+
+> This only needs to be done once. Re-run it if you change `backend/Dockerfile.base`.
 
 ### Docker (Recommended)
 
