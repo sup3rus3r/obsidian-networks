@@ -425,6 +425,9 @@ function CompileSection({
   // Clean up poll on unmount
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
 
+  // True once the user has started a compile — keeps the section visible even after stop
+  const [wasStarted, setWasStarted] = useState(false)
+
   // mtime at the moment we entered 'fixing' — only recompile if mtime advances BEYOND this
   const fixingMtimeRef  = useRef<number | null>(null)
   const startCompileRef = useRef<(() => Promise<void>) | null>(null)
@@ -458,11 +461,12 @@ function CompileSection({
     return () => { if (fixingTimeoutRef.current) clearTimeout(fixingTimeoutRef.current) }
   }, [compile.phase])
 
-  // Hide if: no notebook yet, OR (model exists AND task is not actively running/errored)
+  // Hide if: no notebook yet, OR (outputs exist AND idle/error AND never started this session)
   if (!status.notebook) return null
-  if ((status.models.length > 0 || status.datasets.length > 0) && (compile.phase === 'idle' || compile.phase === 'error')) return null
+  if ((status.models.length > 0 || status.datasets.length > 0) && (compile.phase === 'idle' || compile.phase === 'error') && !wasStarted) return null
 
   const startCompile = async () => {
+    setWasStarted(true)
     setCompile({ phase: 'running', progress: 0, step: 'Queuing…', error: null })
     setMetrics([])
 
@@ -487,6 +491,7 @@ function CompileSection({
           clearInterval(pollRef.current!)
           pollRef.current = null
           taskIdRef.current = null
+          setWasStarted(false)
           setCompile({ phase: 'idle', progress: 100, step: 'Done', error: null })
           onCompileSuccess()
         } else if (data.state === 'FAILURE') {

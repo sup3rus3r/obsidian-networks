@@ -190,8 +190,11 @@ const researchTools = {
 
   fetch_url: tool({
     description:
-      'Fetch and read the full plain-text content of a specific documentation page or paper. ' +
-      'Allowed domains: tensorflow.org, keras.io, arxiv.org, paperswithcode.com, huggingface.co.',
+      'Fetch and read the full plain-text content of a specific paper or documentation page. ' +
+      'Allowed domains: tensorflow.org, keras.io, arxiv.org, paperswithcode.com, huggingface.co. ' +
+      'PRIMARY USE: fetch full arxiv paper text (methods, architecture, hyperparameters). ' +
+      'For arxiv URLs, the tool automatically tries the full HTML version (/html/) before falling back to the abstract. ' +
+      'Do NOT use this to fetch generic top-level pages (keras.io/api/, tensorflow.org/guide/) as a substitute for reading actual papers — those pages have no architecture or hyperparameter detail.',
     inputSchema: z.object({
       url: z.string().url().describe('The URL to fetch and read'),
     }),
@@ -399,7 +402,7 @@ You have these tools available:
 Research:
 - search_tensorflow_docs: Search TF/Keras docs for current API signatures
 - fetch_arxiv_papers: Find recent papers relevant to the user's problem domain
-- fetch_url: Read full content of pages on tensorflow.org, keras.io, arxiv.org, paperswithcode.com, huggingface.co
+- fetch_url: Read full paper text from arxiv.org (preferred — use for architecture/hyperparameter details), or API docs from tensorflow.org/keras.io. Fetch the top 3 papers in parallel after fetch_arxiv_papers. Never use generic docs pages as a substitute for actual papers.
 
 Script development (use these to iteratively build and verify the script):
 - run_code: Execute a Python snippet in the session directory (has access to dataset.csv). Use to inspect data, test logic, verify shapes before writing the full script.
@@ -423,7 +426,7 @@ CRITICAL — follow this decision tree on EVERY user message:
    → STEP 1 (MANDATORY): Call fetch_arxiv_papers with a query matching their domain — e.g. "tabular regression deep learning 2024". Read ALL returned papers, not just the first one.
    → STEP 2 (MANDATORY): Call fetch_arxiv_papers AGAIN with a second, different query to broaden coverage — e.g. "neural network architecture benchmark tabular data 2024". Compare findings across both calls.
    → STEP 3 (MANDATORY): Call search_tensorflow_docs to verify the Keras 3 API for the top architecture identified from the literature.
-   → STEP 4 (MANDATORY): Call fetch_url on the single most relevant paper URL from steps 1–2 to read its full text (methods, architecture, hyperparameters). This is the primary source for your implementation — always do this, not just when uncertain.
+   → STEP 4 (MANDATORY): Call fetch_url on the TOP 3 most relevant paper URLs from steps 1–2 to read their full text (methods, architecture details, hyperparameters). Do this in parallel. Do NOT substitute generic Keras/TF documentation pages for actual papers — docs are for API verification only. Papers are the primary source for architecture decisions.
    → Only AFTER all research tool calls are complete, proceed:
    → STEP 5: Analyse the schema: task type, target column, class balance, preprocessing needs
    → STEP 6: Use run_code to verify the dataset loads correctly and inspect columns/shapes:
