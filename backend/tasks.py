@@ -871,26 +871,38 @@ def patch_tf_float_cast(code: str) -> str:
     # Common RL variable name patterns that are typically float64 numpy arrays
     _RL_VARS = r'(?:advantages?|returns?|rewards?|adv_batch|ret_batch|reward_batch|targets?|discounted_rewards?|gae|td_targets?)'
 
-    # Patch tf.convert_to_tensor(rl_var) / tf.constant(rl_var)
-    code = re.sub(
-        r'\btf\.(convert_to_tensor|constant)\s*\(\s*(' + _RL_VARS + r')\s*\)',
-        r'tf.\1(_obsidian_f32(\2))',
-        code,
-    )
+    # Skip patching RL vars inside Obsidian-injected helpers (_TFNormalDist etc.)
+    # by only applying regex to lines outside those blocks.
+    def _patch_outside_helpers(src: str) -> str:
+        out_lines = []
+        in_helper = False
+        for ln in src.splitlines(keepends=True):
+            if ln.strip().startswith('class _TFNormalDist') or ln.strip().startswith('def _obsidian_'):
+                in_helper = True
+            elif in_helper and ln and not ln[0].isspace():
+                in_helper = False
+            if in_helper:
+                out_lines.append(ln)
+            else:
+                ln = re.sub(
+                    r'\btf\.(convert_to_tensor|constant)\s*\(\s*(' + _RL_VARS + r')\s*\)',
+                    r'tf.\1(_obsidian_f32(\2))',
+                    ln,
+                )
+                ln = re.sub(
+                    r'(?<!\w)(' + _RL_VARS + r')(?=\s*[\*\+\-\/](?!=))',
+                    r'_obsidian_f32(\1)',
+                    ln,
+                )
+                ln = re.sub(
+                    r'(?<=[\*\+\-\/]\s)(' + _RL_VARS + r')(?!\w)',
+                    r'_obsidian_f32(\1)',
+                    ln,
+                )
+                out_lines.append(ln)
+        return ''.join(out_lines)
 
-    # Patch bare rl_var used in arithmetic with a tf tensor: `ratio * adv_batch`
-    # → `ratio * _obsidian_f32(adv_batch)` and similar for +, -, /
-    # (?!=) ensures we don't match augmented assignments (+=, -=, *=, /=)
-    code = re.sub(
-        r'(?<!\w)(' + _RL_VARS + r')(?=\s*[\*\+\-\/](?!=))',
-        r'_obsidian_f32(\1)',
-        code,
-    )
-    code = re.sub(
-        r'(?<=[\*\+\-\/]\s)(' + _RL_VARS + r')(?!\w)',
-        r'_obsidian_f32(\1)',
-        code,
-    )
+    code = _patch_outside_helpers(code)
 
     # Inject helper after the last TOP-LEVEL import only.
     # Indented imports inside Obsidian-injected helpers must be ignored —
@@ -1124,9 +1136,9 @@ def run_compilation_task(self, session_id: str) -> dict:
     code = patch_df_none_guard(code)
     code = patch_safe_concatenate(code)
     code = patch_normalizer_name(code)
+    code = patch_tf_distributions(code)
     code = patch_tf_float_cast(code)
     code = patch_gymnasium_int_cast(code)
-    code = patch_tf_distributions(code)
     code = patch_canonical_plots(code)
     script_path.write_text(code)  # overwrite so subprocess runs the patched version
 
@@ -1208,8 +1220,8 @@ def run_compilation_task(self, session_id: str) -> dict:
                         "progress": 13,
                     })
 
-            # Detect "[STAGE N]" style output from custom training scripts
-            stage_m = re.match(r'\[STAGE\s+(\d+)\]', line)
+            # Detect "[STAGE N]" or "[N]" or "[N/N]" style section headers from custom scripts
+            stage_m = re.match(r'\[(?:STAGE\s+)?(\d+)(?:/\d+)?\]', line)
             if stage_m:
                 stage_num = int(stage_m.group(1))
                 if stage_num == 1:
