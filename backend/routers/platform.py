@@ -677,10 +677,24 @@ async def download_image(session_id: str, filename: str):
 
 @router.post("/revoke/{task_id}")
 async def revoke_task(task_id: str):
-    """Revoke a running Celery task (best-effort — kills the worker process if possible)."""
+    """Revoke a running Celery task and flush the queue so no queued tasks run after it."""
     from celery.result import AsyncResult
     try:
         AsyncResult(task_id, app=celery_app).revoke(terminate=True, signal="SIGKILL")
+    except Exception:
+        pass
+    try:
+        celery_app.control.purge()
+    except Exception:
+        pass
+    return {"ok": True}
+
+
+@router.post("/purge-queue")
+async def purge_queue():
+    """Flush all pending Celery tasks from the queue (called on New Session)."""
+    try:
+        celery_app.control.purge()
     except Exception:
         pass
     return {"ok": True}

@@ -95,6 +95,7 @@ export function usePlatformSession(): UsePlatformSessionReturn {
   const newSession = useCallback(async () => {
     sessionStorage.removeItem(SESSION_STORAGE_KEY)
     sessionStorage.removeItem(EXPIRES_STORAGE_KEY)
+    try { await fetch('/api/platform/purge-queue', { method: 'POST' }) } catch { /* best-effort */ }
     await initSession()
   }, [initSession])
 
