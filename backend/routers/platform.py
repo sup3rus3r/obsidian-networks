@@ -679,25 +679,39 @@ async def download_image(session_id: str, filename: str):
 async def revoke_task(task_id: str):
     """Revoke a running Celery task and flush the queue so no queued tasks run after it."""
     from celery.result import AsyncResult
+    import asyncio
     try:
         AsyncResult(task_id, app=celery_app).revoke(terminate=True, signal="SIGKILL")
     except Exception:
         pass
-    try:
-        celery_app.control.purge()
-    except Exception:
-        pass
+    # Purge immediately and again after 2s (worker may re-queue on SIGKILL)
+    await _flush_celery_queue()
+    await asyncio.sleep(2)
+    await _flush_celery_queue()
     return {"ok": True}
 
 
 @router.post("/purge-queue")
 async def purge_queue():
     """Flush all pending Celery tasks from the queue (called on New Session)."""
+    await _flush_celery_queue()
+    return {"ok": True}
+
+
+async def _flush_celery_queue():
+    """Reliably flush Celery queue via both control.purge() and direct Redis DEL."""
     try:
         celery_app.control.purge()
     except Exception:
         pass
-    return {"ok": True}
+    try:
+        # Direct Redis DEL is more reliable — catches tasks re-queued after SIGKILL
+        redis_url = celery_app.conf.broker_url
+        import redis as _redis
+        r = _redis.from_url(redis_url)
+        r.delete("celery")
+    except Exception:
+        pass
 
 
 @router.get("/progress-once/{task_id}")

@@ -472,6 +472,10 @@ function CompileSection({
   if ((status.models.length > 0 || status.datasets.length > 0) && (compile.phase === 'idle' || compile.phase === 'error') && !wasStarted) return null
 
   const startCompile = async () => {
+    // Clear any previous poll before starting a new one
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+    taskIdRef.current = null
+
     setWasStarted(true)
     setCompile({ phase: 'running', progress: 0, step: 'Queuing…', detail: null, error: null })
     setMetrics([])
