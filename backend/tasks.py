@@ -1275,14 +1275,29 @@ def run_compilation_task(self, session_id: str) -> dict:
                     _update("Building model…", 24)
                 continue
 
-            # Detect box-style epoch headers: ╔══ EPOCH   1/50 ══╗  OR  Update 1/50
-            box_epoch_m = re.search(r'(?:EPOCH|Update)\s+(\d+)/(\d+)', line)
+            # Detect any N/M counter that looks like training progress — script-agnostic
+            # Matches: "Epoch 1/50", "Update 1/50", "[EP 0001/500]", "Episode 1/200", "Step 100/1000", etc.
+            box_epoch_m = re.search(r'(?:epoch|update|episode|step|ep|iter)[^\d]*(\d+)\s*/\s*(\d+)', line, re.IGNORECASE)
             if box_epoch_m:
                 current_epoch = int(box_epoch_m.group(1))
                 total_epochs  = int(box_epoch_m.group(2))
-                progress = max(26, min(90, int(26 + 64 * (current_epoch - 1) / max(total_epochs, 1))))
-                _update(f"Epoch {current_epoch}/{total_epochs}", progress)
-                continue
+                if total_epochs > 1:
+                    progress = max(26, min(90, int(26 + 64 * (current_epoch - 1) / max(total_epochs, 1))))
+                    _update(f"Training… {current_epoch}/{total_epochs}", progress)
+                    continue
+
+            # Generic training keyword detection — script-agnostic fallback
+            # If we see training-related keywords after preprocessing, move to Training stage
+            if preprocessing and not current_epoch:
+                low = line.lower()
+                if any(tok in low for tok in (
+                    "training", "train loop", "starting ppo", "starting training",
+                    "actor loss", "critic loss", "reward", "policy", "rollout",
+                    "loss:", "acc:", "accuracy", "val_loss", "val_acc",
+                )):
+                    current_epoch = 1
+                    total_epochs  = 1
+                    _update("Training…", 30)
 
             # Detect "Epoch N/T" header
             em = _EPOCH_NUM_RE.match(line)
