@@ -1223,17 +1223,33 @@ def run_compilation_task(self, session_id: str) -> dict:
     except Exception:
         _stop_redis = None
 
-    try:
-        for raw_line in proc.stdout:  # type: ignore[union-attr]
-            # Check stop flag — set by the revoke endpoint
+    # Background thread: poll Redis stop flag every 0.5s and kill proc if set.
+    # This ensures Stop works even when the script is not printing (e.g. saving files).
+    import threading
+    _done = threading.Event()    # set when stdout loop finishes normally
+    _killed = threading.Event()  # set when watcher kills the process
+
+    def _stop_watcher():
+        while not _done.is_set():
             if _stop_redis:
                 try:
                     if _stop_redis.get("worker:stop"):
                         proc.kill()
                         _stop_redis.delete("worker:stop")
-                        return {"stopped": True}
+                        _killed.set()
+                        return
                 except Exception:
                     pass
+            _done.wait(0.5)
+
+    _watcher = threading.Thread(target=_stop_watcher, daemon=True)
+    _watcher.start()
+
+    try:
+        for raw_line in proc.stdout:  # type: ignore[union-attr]
+            # Check if stop watcher already killed the process
+            if _killed.is_set():
+                break
 
             line = raw_line.rstrip()
             stdout_lines.append(line)
@@ -1324,6 +1340,16 @@ def run_compilation_task(self, session_id: str) -> dict:
                 _update("Evaluating & saving outputs…", 91)
     except Exception:
         pass
+    finally:
+        _done.set()   # signal the background watcher thread to exit
+
+    if _killed.is_set():
+        # Watcher killed the process — drain and return
+        try:
+            proc.wait(timeout=5)
+        except Exception:
+            pass
+        return {"stopped": True}
 
     self.update_state(state="PROGRESS", meta={
         "step"    : "Saving outputs…",
