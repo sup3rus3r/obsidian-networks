@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import shutil
 import time
@@ -18,9 +19,33 @@ class SessionData:
     analysis    : dict | None = None
     environment : dict | None = None
     task_id     : str | None = None
+    # Research → Plan → Build state machine (v0.7.0)
+    # Phases: idle | researching | planning | approved | building
+    phase       : str        = "idle"
+    plan_doc    : str | None = None
 
 
 _sessions: dict[str, SessionData] = {}
+
+
+def _persist_phase(session: "SessionData") -> None:
+    """Write phase and plan_doc to disk so they survive backend restarts."""
+    (session.session_dir / "phase.txt").write_text(session.phase)
+    plan_path = session.session_dir / "plan.md"
+    if session.plan_doc is not None:
+        plan_path.write_text(session.plan_doc)
+    elif plan_path.exists():
+        plan_path.unlink()
+
+
+def _restore_phase(session: "SessionData") -> None:
+    """Re-hydrate phase and plan_doc from disk after a backend restart."""
+    phase_path = session.session_dir / "phase.txt"
+    if phase_path.exists():
+        session.phase = phase_path.read_text().strip()
+    plan_path = session.session_dir / "plan.md"
+    if plan_path.exists():
+        session.plan_doc = plan_path.read_text()
 
 
 def create_session() -> str:
@@ -28,14 +53,34 @@ def create_session() -> str:
     session_dir = SESSIONS_DIR / sid
     output_dir  = session_dir / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
-    _sessions[sid] = SessionData(created_at=time.time(), session_dir=session_dir)
+    created_at  = time.time()
+    (session_dir / "session_meta.json").write_text(
+        json.dumps({"created_at": created_at})
+    )
+    _sessions[sid] = SessionData(created_at=created_at, session_dir=session_dir)
     return sid
 
 
 def get_session(sid: str) -> SessionData | None:
     session = _sessions.get(sid)
     if not session:
-        return None
+        # Try to reconstruct from disk (survives backend restarts within TTL)
+        session_dir = SESSIONS_DIR / sid
+        meta_path   = session_dir / "session_meta.json"
+        if meta_path.exists():
+            try:
+                meta    = json.loads(meta_path.read_text())
+                session = SessionData(
+                    created_at  = meta["created_at"],
+                    session_dir = session_dir,
+                    dataset_path= meta.get("dataset_path"),
+                )
+                _restore_phase(session)
+                _sessions[sid] = session
+            except Exception:
+                return None
+        else:
+            return None
     if time.time() - session.created_at > SESSION_TTL:
         _delete_session(sid)
         return None

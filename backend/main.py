@@ -53,6 +53,14 @@ async def lifespan(app: FastAPI):
         await UserCollection.create_indexes(db)
         await APIClientCollection.create_indexes(db)
     asyncio.create_task(cleanup_expired_sessions())
+    # Pre-load the sentence-transformers embedding model so the first ingest
+    # request is not delayed by a 5–15 second model download/load.
+    try:
+        from vectorstore import warmup
+        await asyncio.get_event_loop().run_in_executor(None, warmup)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Vectorstore warm-up failed (non-fatal): %s", e)
     yield
     if DATABASE_TYPE == "mongo":
         await close_mongo_connection()

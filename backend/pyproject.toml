@@ -28,4 +28,8 @@ dependencies = [
     "feedparser>=6.0.0",
     "nbformat>=5.10.0",
     "gymnasium>=0.29.0",
+    # ── Research vector store (v0.7.0) ────────────────────────────────────────
+    "faiss-cpu>=1.8.0",
+    "sentence-transformers>=3.0.0",
+    "pypdf>=4.0.0",
 ]

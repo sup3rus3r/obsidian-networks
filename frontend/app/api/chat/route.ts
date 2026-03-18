@@ -12,7 +12,8 @@ const MAX_HISTORY_MSGS: Record<string, number> = {
   lmstudio : 16,
 }
 
-const FETCH_TIMEOUT = 10_000
+const FETCH_TIMEOUT     = 10_000
+const PDF_FETCH_TIMEOUT = 45_000
 
 async function fetchText(url: string): Promise<string> {
   const res = await fetch(url, {
@@ -26,7 +27,7 @@ async function fetchPdfText(url: string): Promise<string | null> {
   try {
     const res = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; obsidian-networks-research/1.0)' },
-      signal : AbortSignal.timeout(30_000),
+      signal : AbortSignal.timeout(PDF_FETCH_TIMEOUT),
     })
     if (!res.ok) return null
     const buf = Buffer.from(await res.arrayBuffer())
@@ -113,7 +114,7 @@ function parseArxiv(xml: string): Paper[] {
       title   : (e.match(/<title>([\s\S]*?)<\/title>/)?.[1]   ?? '').trim().replace(/\s+/g, ' '),
       authors : [...e.matchAll(/<name>([\s\S]*?)<\/name>/g)]
                   .slice(0, 3).map(a => a[1].trim()).join(', '),
-      abstract: (e.match(/<summary>([\s\S]*?)<\/summary>/)?.[1] ?? '').trim().replace(/\s+/g, ' ').slice(0, 500),
+      abstract: (e.match(/<summary>([\s\S]*?)<\/summary>/)?.[1] ?? '').trim().replace(/\s+/g, ' ').slice(0, 2000),
       url,
     })
   }
@@ -137,124 +138,241 @@ function isAllowedUrl(raw: string): boolean {
   }
 }
 
-const researchTools = {
-  search_tensorflow_docs: tool({
-    description:
-      'Search the TensorFlow and Keras documentation for API references, guides, and tutorials. ' +
-      'Always call this before writing any model architecture or preprocessing code to verify ' +
-      'current Keras 3 API signatures and avoid deprecated patterns.',
-    inputSchema: z.object({
-      query: z.string().describe(
-        'Search query, e.g. "Conv2D layer parameters keras 3" or "EarlyStopping callback"'
-      ),
-    }),
-    execute: async (input: { query: string }) => {
-      try {
-        const results = await searchDDG(
-          `site:keras.io OR site:tensorflow.org/api_docs ${input.query}`,
-          3
-        )
-        // Auto-fetch the top result to get actual API content, not just snippets
-        let topContent: string | null = null
-        for (const r of results) {
-          if (isAllowedUrl(r.url)) {
-            try {
-              const raw = await fetchText(r.url)
-              if (raw) {
-                topContent = wordTruncate(htmlToText(raw), 4000)
-                break
-              }
-            } catch { /* skip, return snippets only */ }
-          }
-        }
-        return { query: input.query, results, topContent }
-      } catch (err) {
-        return { query: input.query, results: [] as SearchResult[], topContent: null, error: String(err) }
-      }
-    },
-  }),
+function createResearchTools(sessionId: string | null) {
+  const apiBase = process.env.INTERNAL_API_URL ?? 'http://localhost:8000'
 
-  fetch_arxiv_papers: tool({
-    description:
-      'Fetch recent research papers from arXiv for a given ML problem domain. ' +
-      'Call this when the user describes a specific task (e.g. "fraud detection", ' +
-      '"time series forecasting", "NLP classification") to ground recommendations in recent literature.',
-    inputSchema: z.object({
-      query      : z.string().describe(
-        'arXiv search terms, e.g. "tabular classification neural network" or "transformer time series anomaly"'
-      ),
-      max_results: z.number().int().min(1).max(5).default(3),
-    }),
-    execute: async (input: { query: string; max_results: number }) => {
-      try {
-        const xml = await fetchText(
-          `https://export.arxiv.org/api/query` +
-          `?search_query=all:${encodeURIComponent(input.query)}` +
-          `&start=0&max_results=${input.max_results}` +
-          `&sortBy=relevance&sortOrder=descending`
-        )
-        const papers = parseArxiv(xml)
-        return { query: input.query, papers }
-      } catch (err) {
-        return { query: input.query, papers: [] as Paper[], error: String(err) }
-      }
-    },
-  }),
-
-  fetch_url: tool({
-    description:
-      'Fetch and read the full plain-text content of a specific paper or documentation page. ' +
-      'Allowed domains: tensorflow.org, keras.io, arxiv.org, paperswithcode.com, huggingface.co. ' +
-      'PRIMARY USE: fetch full arxiv paper text (methods, architecture, hyperparameters). ' +
-      'For arxiv URLs, the tool automatically tries the full HTML version (/html/) before falling back to the abstract. ' +
-      'Do NOT use this to fetch generic top-level pages (keras.io/api/, tensorflow.org/guide/) as a substitute for reading actual papers — those pages have no architecture or hyperparameter detail.',
-    inputSchema: z.object({
-      url: z.string().url().describe('The URL to fetch and read'),
-    }),
-    execute: async (input: { url: string }) => {
-      if (!isAllowedUrl(input.url)) {
-        return { error: `Domain not allowed. Permitted: ${ALLOWED_DOMAINS.join(', ')}` }
-      }
-      // arXiv: try full HTML render first, fall back to abstract page if unavailable
-      const isArxivAbs = /^https?:\/\/arxiv\.org\/abs\//.test(input.url)
-
-      async function tryFetch(url: string): Promise<string | null> {
+  return {
+    search_tensorflow_docs: tool({
+      description:
+        'Search the TensorFlow and Keras documentation for API references, guides, and tutorials. ' +
+        'Always call this before writing any model architecture or preprocessing code to verify ' +
+        'current Keras 3 API signatures and avoid deprecated patterns.',
+      inputSchema: z.object({
+        query: z.string().describe(
+          'Search query, e.g. "Conv2D layer parameters keras 3" or "EarlyStopping callback"'
+        ),
+      }),
+      execute: async (input: { query: string }) => {
         try {
-          const text = await fetchText(url)
-          if (text.includes('No HTML for') || text.includes('HTML is not available')) return null
-          return text
-        } catch { return null }
-      }
-
-      let fetchedUrl = input.url
-      let raw: string | null = null
-
-      if (isArxivAbs) {
-        const htmlUrl = input.url.replace('/abs/', '/html/')
-        raw = await tryFetch(htmlUrl)
-        if (raw) {
-          fetchedUrl = htmlUrl
-        } else {
-          // HTML not available — try PDF text extraction
-          const pdfUrl = input.url.replace('/abs/', '/pdf/')
-          const pdfText = await fetchPdfText(pdfUrl)
-          if (pdfText) {
-            const content = wordTruncate(pdfText.replace(/\s+/g, ' ').trim(), 12000)
-            return { url: pdfUrl, content }
+          const results = await searchDDG(
+            `site:keras.io OR site:tensorflow.org/api_docs ${input.query}`,
+            3
+          )
+          let topContent: string | null = null
+          for (const r of results) {
+            if (isAllowedUrl(r.url)) {
+              try {
+                const raw = await fetchText(r.url)
+                if (raw) { topContent = wordTruncate(htmlToText(raw), 4000); break }
+              } catch { /* skip */ }
+            }
           }
-          // PDF failed too — fall back to abstract page
-          raw = await tryFetch(input.url)
-          fetchedUrl = input.url
+          return { query: input.query, results, topContent }
+        } catch (err) {
+          return { query: input.query, results: [] as SearchResult[], topContent: null, error: String(err) }
         }
-      } else {
-        raw = await tryFetch(input.url)
-      }
+      },
+    }),
 
-      if (!raw) return { url: fetchedUrl, error: 'Could not fetch page.' }
-      const content = wordTruncate(htmlToText(raw), 12000)
-      return { url: fetchedUrl, content }
-    },
-  }),
+    fetch_arxiv_papers: tool({
+      description:
+        'Fetch recent research papers from arXiv for a given ML problem domain. ' +
+        'Call this when the user describes a specific task to ground recommendations in recent literature.',
+      inputSchema: z.object({
+        query      : z.string().describe('arXiv search terms, e.g. "tabular classification neural network 2024"'),
+        max_results: z.number().int().min(1).max(5).default(3),
+      }),
+      execute: async (input: { query: string; max_results: number }) => {
+        try {
+          const xml = await fetchText(
+            `https://export.arxiv.org/api/query` +
+            `?search_query=all:${encodeURIComponent(input.query)}` +
+            `&start=0&max_results=${input.max_results}` +
+            `&sortBy=relevance&sortOrder=descending`
+          )
+          const papers = parseArxiv(xml)
+          return { query: input.query, papers }
+        } catch (err) {
+          return { query: input.query, papers: [] as Paper[], error: String(err) }
+        }
+      },
+    }),
+
+    fetch_url: tool({
+      description:
+        'Fetch and read the full plain-text content of a specific paper or documentation page. ' +
+        'Allowed domains: tensorflow.org, keras.io, arxiv.org, paperswithcode.com, huggingface.co. ' +
+        'For arxiv URLs, automatically tries the full HTML version (/html/) before falling back to PDF then abstract. ' +
+        'After calling fetch_url, ALWAYS call ingest_url with the same URL to index it into the vector store.',
+      inputSchema: z.object({
+        url: z.string().url().describe('The URL to fetch and read'),
+      }),
+      execute: async (input: { url: string }) => {
+        if (!isAllowedUrl(input.url)) {
+          return { error: `Domain not allowed. Permitted: ${ALLOWED_DOMAINS.join(', ')}` }
+        }
+        const isArxivAbs = /^https?:\/\/arxiv\.org\/abs\//.test(input.url)
+
+        async function tryFetch(url: string): Promise<string | null> {
+          try {
+            const text = await fetchText(url)
+            if (text.includes('No HTML for') || text.includes('HTML is not available')) return null
+            return text
+          } catch { return null }
+        }
+
+        let fetchedUrl = input.url
+        let raw: string | null = null
+
+        if (isArxivAbs) {
+          const htmlUrl = input.url.replace('/abs/', '/html/')
+          raw = await tryFetch(htmlUrl)
+          if (raw) {
+            fetchedUrl = htmlUrl
+          } else {
+            const pdfUrl = input.url.replace('/abs/', '/pdf/')
+            const pdfText = await fetchPdfText(pdfUrl)
+            if (pdfText) {
+              return { url: pdfUrl, content: wordTruncate(pdfText.replace(/\s+/g, ' ').trim(), 12000), source: 'pdf' }
+            }
+            raw = await tryFetch(input.url)
+            fetchedUrl = input.url
+          }
+        } else {
+          raw = await tryFetch(input.url)
+        }
+
+        if (!raw) return { url: fetchedUrl, error: 'Could not fetch page.' }
+        return { url: fetchedUrl, content: wordTruncate(htmlToText(raw), 12000), source: 'html' }
+      },
+    }),
+
+    ingest_url: tool({
+      description:
+        'Index a fetched URL into the session vector store. ' +
+        'MUST be called after every fetch_url call with the same URL and the paper title. ' +
+        'The backend downloads the full document independently (no truncation) and embeds it into FAISS. ' +
+        'This is what powers query_research in the planning phase — skip it and planning has no data.',
+      inputSchema: z.object({
+        url  : z.string().url().describe('The URL that was just fetched with fetch_url'),
+        title: z.string().describe('The paper or page title'),
+      }),
+      execute: async (input: { url: string; title: string }) => {
+        if (!sessionId) return { error: 'No active session' }
+        try {
+          const res = await fetch(`${apiBase}/platform/vectorstore/${sessionId}/ingest`, {
+            method : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body   : JSON.stringify(input),
+            signal : AbortSignal.timeout(90_000),
+          })
+          return await res.json()
+        } catch (e) {
+          return { error: String(e) }
+        }
+      },
+    }),
+
+    finalize_research: tool({
+      description:
+        'Signal that research is complete and transition to the PLANNING phase. ' +
+        'Call ONLY after all fetch_url + ingest_url calls are done (minimum 3 papers indexed). ' +
+        'After this call, query_research and produce_plan become available.',
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (!sessionId) return { error: 'No active session' }
+        try {
+          const res = await fetch(`${apiBase}/platform/session/${sessionId}/phase`, {
+            method : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body   : JSON.stringify({ phase: 'planning' }),
+            signal : AbortSignal.timeout(10_000),
+          })
+          return await res.json()
+        } catch (e) {
+          return { error: String(e) }
+        }
+      },
+    }),
+  }
+}
+
+function createPlanningTools(sessionId: string | null) {
+  const apiBase = process.env.INTERNAL_API_URL ?? 'http://localhost:8000'
+
+  return {
+    query_research: tool({
+      description:
+        'Query the session vector store to retrieve relevant chunks from ingested papers and docs. ' +
+        'Use during planning to ground every architecture decision in specific retrieved evidence. ' +
+        'Call at least 6 times with different queries before writing the plan. ' +
+        'Returns top-k chunks with source URL and relevance score.',
+      inputSchema: z.object({
+        query: z.string().describe('The question to search for, e.g. "optimal learning rate tabular data"'),
+        k    : z.number().int().min(1).max(12).default(6),
+      }),
+      execute: async (input: { query: string; k: number }) => {
+        if (!sessionId) return { error: 'No active session' }
+        try {
+          const res = await fetch(`${apiBase}/platform/vectorstore/${sessionId}/query`, {
+            method : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body   : JSON.stringify(input),
+            signal : AbortSignal.timeout(15_000),
+          })
+          return await res.json()
+        } catch (e) {
+          return { error: String(e) }
+        }
+      },
+    }),
+
+    produce_plan: tool({
+      description:
+        'Submit the structured plan document to the user for approval. ' +
+        'Write the complete markdown plan using the <plan_template> structure from the system prompt. ' +
+        'Every architecture decision and hyperparameter MUST cite a source URL from retrieved chunks. ' +
+        'After calling this, STOP and wait for user approval. Do NOT call edit_script or create_notebook.',
+      inputSchema: z.object({
+        plan_markdown: z.string().describe('Full markdown plan document following the plan_template structure'),
+      }),
+      execute: async (input: { plan_markdown: string }) => {
+        if (!sessionId) return { error: 'No active session' }
+        try {
+          const res = await fetch(`${apiBase}/platform/session/${sessionId}/phase`, {
+            method : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body   : JSON.stringify({ phase: 'planning', plan_doc: input.plan_markdown }),
+            signal : AbortSignal.timeout(10_000),
+          })
+          return await res.json()
+        } catch (e) {
+          return { error: String(e) }
+        }
+      },
+    }),
+
+    approve_plan: tool({
+      description:
+        'Call this when the user approves the plan (says "looks good", "approved", "proceed", "go ahead", etc.). ' +
+        'Transitions the session to approved state and unlocks edit_script, run_code, and create_notebook.',
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (!sessionId) return { error: 'No active session' }
+        try {
+          const res = await fetch(`${apiBase}/platform/session/${sessionId}/phase`, {
+            method : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body   : JSON.stringify({ phase: 'approved' }),
+            signal : AbortSignal.timeout(10_000),
+          })
+          return await res.json()
+        } catch (e) {
+          return { error: String(e) }
+        }
+      },
+    }),
+  }
 }
 
 function createScriptTools(sessionId: string | null) {
@@ -404,148 +522,211 @@ function createNotebookTool(sessionId: string | null) {
   })
 }
 
-const SYSTEM = `\
+// ── Base system prompt (role, format, code constraints) ──────────────────────
+// Phase-specific behaviour is injected at runtime via buildSystemPrompt().
+const SYSTEM_BASE = `\
 <role>
 You are Obsidian Networks — an expert ML research engineer specialising in TensorFlow/Keras.
 Your purpose is to help users design, research, and generate production-ready deep learning models from their datasets.
+You operate in three strict phases: RESEARCH → PLAN → BUILD.
+You NEVER skip phases. You NEVER write code before the plan is approved.
 </role>
-
-<context>
-You have these tools available:
-Research:
-- search_tensorflow_docs: Search TF/Keras docs for current API signatures
-- fetch_arxiv_papers: Find recent papers relevant to the user's problem domain
-- fetch_url: Read full paper text from arxiv.org (preferred — use for architecture/hyperparameter details), or API docs from tensorflow.org/keras.io. Fetch the top 3 papers in parallel after fetch_arxiv_papers. Never use generic docs pages as a substitute for actual papers.
-
-Script development (use these to iteratively build and verify the script):
-- run_code: Execute a Python snippet in the session directory (has access to dataset.csv). Use to inspect data, test logic, verify shapes before writing the full script.
-- read_script: Read the current generated_script.py with line numbers.
-- edit_script: Replace an exact string in the script (str-replace). Use to fix specific errors without rewriting from scratch.
-- create_notebook: Validate and save the current script as a downloadable .ipynb. Pass ONLY a description — the backend reads the script written by edit_script automatically. Always call edit_script(__REPLACE_ALL__) BEFORE create_notebook.
-</context>
-
-<behaviour>
-CRITICAL — follow this decision tree on EVERY user message:
-
-1. DATASET JUST UPLOADED, NO CLEAR GOAL YET?
-   → Do NOT run tools. Do NOT write code. Do NOT suggest or name any architectures.
-   → Greet the dataset briefly (1 sentence: row count, task type detected).
-   → Ask ONE focused open-ended question about what the user wants to achieve or predict.
-   → Example: "I can see 1,200 houses with a continuous price target — looks like a regression problem. What would you like to optimise for, or do you have a preferred approach in mind?"
-   → Do NOT list architecture names like "Wide & Deep", "MLP", "ResNet" in this response.
-
-2. USER HAS STATED A CLEAR GOAL (either in the upload message or a follow-up)?
-   → You MUST call research tools BEFORE forming any architectural opinion. This is non-negotiable.
-   → STEP 1 (MANDATORY): Call fetch_arxiv_papers with a query matching their domain — e.g. "tabular regression deep learning 2024". Read ALL returned papers, not just the first one.
-   → STEP 2 (MANDATORY): Call fetch_arxiv_papers AGAIN with a second, different query to broaden coverage — e.g. "neural network architecture benchmark tabular data 2024". Compare findings across both calls.
-   → STEP 3 (MANDATORY): Call search_tensorflow_docs to verify the Keras 3 API for the top architecture identified from the literature.
-   → STEP 4 (MANDATORY): Call fetch_url on the TOP 3 most relevant paper URLs from steps 1–2 to read their full text (methods, architecture details, hyperparameters). Do this in parallel. Do NOT substitute generic Keras/TF documentation pages for actual papers — docs are for API verification only. Papers are the primary source for architecture decisions.
-   → Only AFTER all research tool calls are complete, proceed:
-   → STEP 5: Analyse the schema: task type, target column, class balance, preprocessing needs
-   → STEP 6: Use run_code to verify the dataset loads correctly and inspect columns/shapes:
-       run_code("import pandas as pd; df = pd.read_csv('dataset.csv'); print(df.shape); print(df.dtypes); print(df.head(2))")
-   → STEP 7: Write the complete script by calling edit_script(old_str="__REPLACE_ALL__", new_str=<full script>). Then call create_notebook with ONLY a description (no script argument). Do NOT print or show the script in your chat reply.
-   → STEP 8: If create_notebook returns validation errors, use read_script to read the current script. Fix errors with edit_script (targeted str-replace for small fixes, or old_str="__REPLACE_ALL__" to rewrite the whole script). Then call create_notebook (description only) again. Repeat until it succeeds.
-   → STEP 9: After create_notebook succeeds, write a SHORT chat reply (3–6 bullet points max) summarising: architecture chosen, why (citing specific papers), key hyperparameters, and what the user should expect. No code in the reply.
-
-3. USER ASKS TO CHANGE/IMPROVE THE MODEL?
-   → Call fetch_arxiv_papers with a query specific to the requested change before modifying the script.
-   → Use read_script to read the current script, then edit_script to apply targeted changes. Do NOT rewrite the whole script unless necessary.
-   → Call create_notebook with ONLY a description (no script argument) to save the updated script.
-   → Reply with 2–3 sentences describing what changed and which paper motivated it. No code in the reply.
-
-4. GENERAL KERAS/TF QUESTION (no dataset, no code request)?
-   → Call search_tensorflow_docs first, then answer concisely with cited sources.
-
-5. create_notebook RETURNS ERRORS?
-   → Fix ALL listed errors immediately. Do NOT ask the user for clarification — fix and retry autonomously.
-   → Call create_notebook again with the corrected script. Repeat until it returns ok: true.
-   → If create_notebook returns a HARD STOP (action says "Do NOT call create_notebook again"), STOP immediately.
-     Do NOT call create_notebook again under any circumstances. Apologise to the user and ask them to describe a simpler architecture so you can start fresh.
-
-NEVER suggest or name an architecture before running fetch_arxiv_papers.
-NEVER call fetch_arxiv_papers only once — always run at least two queries with different angles.
-NEVER jump to writing code if the user has not yet told you what they want to build.
-NEVER ask more than one question at a time.
-NEVER narrate your reasoning, instructions, or decision process in your reply — think silently and only output the final response to the user.
-</behaviour>
 
 <format>
 - NEVER show the training script in your chat reply — it goes ONLY into create_notebook
-- Chat replies must be concise: architecture summary, rationale, key hyperparameters, expected output — as bullet points
-- Include sources as markdown links under a "References" heading after your summary
-- Structure your script internally with section comments: # ── Section Name ──────────────
-  (e.g. # ── Imports ──────────, # ── Data Loading ──────────, # ── Model ──────────)
-- Inline script comments must explain *why* an architectural decision was made, not just what it does
-- Keep conversational replies short and direct — do not pad with unnecessary explanation
+- Chat replies must be concise — bullet points, not paragraphs
+- Include sources as markdown links under a "References" heading
+- Structure scripts internally with section comments: # ── Section Name ──────────────
+- Inline script comments must explain *why* an architectural decision was made, citing the approved plan
+- Keep conversational replies short and direct
 </format>
 
 <constraints>
-- The dataset is ALWAYS available as "dataset.csv" (or "dataset.json" for JSON uploads) in the working directory — use this exact filename for DATA_PATH. NEVER use the original uploaded filename.
-- All model output files (.keras, .h5) MUST be saved inside the "output/" subdirectory — e.g. model.save("output/model.keras")
-- If your script creates a derived/preprocessed dataset that a later step must read back, save it to "output/filename.csv" and read it back as pd.read_csv("output/filename.csv"). NEVER use a bare filename like pd.read_csv("training_data.csv") for derived files — the platform will rewrite bare filenames to "dataset.csv".
-- DO NOT write any matplotlib/seaborn plot code or plt.savefig calls — the platform automatically generates a canonical set of diagnostic plots (loss curve, metric curve, confusion matrix or predictions scatter) after training. Adding your own plot code will be stripped and may cause errors.
-- Always start scripts with "import tensorflow" and access Keras as tensorflow.keras — e.g. tensorflow.keras.Input(), tensorflow.keras.layers.Dense(). NEVER use standalone "import keras" or bare "keras.X" references.
+- The dataset is ALWAYS available as "dataset.csv" (or "dataset.json" for JSON uploads). NEVER use the original uploaded filename.
+- All model output files (.keras, .h5) MUST be saved inside the "output/" subdirectory
+- If your script creates a derived dataset a later step must read back, save it to "output/filename.csv". NEVER use a bare filename for derived files — the platform rewrites bare filenames to "dataset.csv".
+- DO NOT write any matplotlib/seaborn plot code or plt.savefig calls — the platform auto-generates canonical diagnostic plots
+- Always start scripts with "import tensorflow" and access Keras as tensorflow.keras. NEVER use standalone "import keras" or bare "keras.X" references.
 - Use the Functional API for all models — no Sequential for anything non-trivial
-- CRITICAL — ALL tabular features are numeric by the time the model sees them. The worker automatically encodes every non-numeric column to float32 integer codes. Treat ALL columns as plain numeric features.
-- THEREFORE: Use a SINGLE keras.Input of shape (n_features,) and a SINGLE keras.layers.Normalization layer for the entire feature matrix. NEVER build separate embedding branches, NEVER use Embedding layers, NEVER use StringLookup, NEVER use separate categorical/numerical input branches for tabular data. One input, one normalizer, then your Dense layers.
+- CRITICAL — ALL tabular features are numeric by the time the model sees them. The worker automatically encodes every non-numeric column to float32 integer codes.
+- THEREFORE: Use a SINGLE keras.Input of shape (n_features,) and a SINGLE keras.layers.Normalization layer. NEVER use Embedding layers, StringLookup, or separate categorical/numerical branches for tabular data.
 - The feature matrix is always: X = df[feature_cols].to_numpy(dtype='float32')
-- CRITICAL — Normalization layer: ALWAYS call normalizer.adapt(X_train) on the TRAINING split only BEFORE building the model. Never adapt on the full dataset (leakage). Never skip adapt() — unadapted Normalization outputs all-zero which causes NaN loss immediately.
-- CRITICAL — NaN safety: ALWAYS add these guards after loading data and before training:
-  (a) Drop or impute NaN/inf values: df = df.replace([np.inf, -np.inf], np.nan).dropna()
-  (b) After any log transform (e.g. np.log1p(y)), verify: assert np.isfinite(y_train).all(), "Target contains NaN/inf after transform"
-  (c) When predicting on test set, invert the same transform: y_pred_orig = np.expm1(y_pred) if log1p was used
-  (d) Before plotting residuals or histograms: mask = np.isfinite(residuals); residuals = residuals[mask]
-- CRITICAL — never use pandas/numpy transforms in Keras Normalization for the target — log-transform the TARGET COLUMN in pandas before splitting, then invert at evaluation time with the matching inverse transform
-- Every supervised training script must include EarlyStopping (patience=20, restore_best_weights=True) + ModelCheckpoint callbacks
-- Always set epochs=200 in model.fit() — EarlyStopping will cut it short when appropriate. NEVER use epochs=1 or any low value.
+- CRITICAL — Normalization layer: ALWAYS call normalizer.adapt(X_train) on the TRAINING split only BEFORE building the model. Never adapt on the full dataset (leakage).
+- CRITICAL — NaN safety: ALWAYS add after loading data: df = df.replace([np.inf, -np.inf], np.nan).dropna()
+- Every supervised script must include EarlyStopping(patience=20, restore_best_weights=True) + ModelCheckpoint
+- Always set epochs=200 in model.fit() — EarlyStopping will cut it short. NEVER use epochs=1 or any low value.
 - Never use deprecated Keras 2 APIs
-- CRITICAL — residual/skip connections with layers.Add() REQUIRE matching shapes. When the number of units changes between the input and output of a block, ALWAYS project the shortcut with a Dense layer of the same output units before the Add(). Example: shortcut = layers.Dense(units)(shortcut) before layers.Add()([x, shortcut])
-- ALWAYS call fetch_arxiv_papers AND search_tensorflow_docs before proposing or writing any architecture — even when the user has already named a specific architecture (e.g. "Wide & Deep", "ResNet", "LSTM"). Research is mandatory, not optional.
-- If you are unsure of an API signature, call search_tensorflow_docs before writing code
-- Always call create_notebook after producing a complete training script
+- CRITICAL — residual/skip connections with layers.Add() REQUIRE matching shapes. Always project the shortcut with a Dense layer of matching units before Add().
+- For time series: use keras.utils.timeseries_dataset_from_array() — NEVER manually roll windows
+- For RL: custom training loop with env.step() / env.reset() — do NOT use model.fit()
+</constraints>
 
-For time series forecasting tasks (when dataset_type is "time_series" — a datetime column is present — or the user asks about forecasting, prediction over time, sequence modelling, or temporal patterns):
-- Call fetch_arxiv_papers with a time-series-specific query BEFORE writing any architecture (e.g. "LSTM multivariate time series forecasting 2024" or "Temporal Fusion Transformer tabular time series 2024")
-- Call search_tensorflow_docs to verify the Keras 3 API for the chosen sequence model
-- Parse and sort the dataset by the datetime column before windowing
-- Use a sliding window approach: choose a sensible WINDOW_SIZE (e.g. 30 for daily data, 24 for hourly) and HORIZON (how many steps ahead to predict)
-- Normalise features using a keras.layers.Normalization layer fitted on the training split only — never the full dataset
-- Architecture selection guidelines:
-  - Short sequences / fast iteration: stacked LSTM with dropout
-  - Multivariate with rich feature interactions: Temporal Fusion Transformer (TFT) or a Transformer encoder
-  - Very long sequences (>500 steps): WaveNet-style dilated causal convolutions
-- Always split data temporally (no random shuffle): first 80% train, next 10% val, last 10% test
-- Use keras.utils.timeseries_dataset_from_array() to create windowed tf.data.Dataset objects — NEVER manually roll windows with loops
-- CRITICAL — correct usage of timeseries_dataset_from_array: pass the feature array as "data" and the target array as "targets" separately. The dataset yields (inputs, targets) tuples of shape (batch, window, features) and (batch, horizon) respectively. Example:
-  train_ds = keras.utils.timeseries_dataset_from_array(
-      data=X_train, targets=y_train, sequence_length=WINDOW_SIZE,
-      sequence_stride=1, batch_size=32
-  )
-  Do NOT pass a combined array and try to split inside the loop — this causes "too many values to unpack" errors.
-- Include a forecast plot saved to "output/forecast.png" showing actual vs predicted values on the test set
-- Save the model as "output/forecaster.keras"
-- Include ReduceLROnPlateau callback in addition to EarlyStopping and ModelCheckpoint
+<plan_template>
+When writing the plan document, use exactly this structure:
 
-For reinforcement learning tasks (when the user describes an agent, environment, policy, reward, or any RL problem — trading bot, game agent, robot controller, etc.):
-- Call fetch_arxiv_papers with an RL-specific query BEFORE writing any architecture (e.g. "PPO actor critic custom environment 2024")
-- Call search_tensorflow_docs to verify Keras custom training loop API
-- Choose the algorithm from the user's description: PPO for continuous or complex action spaces, DQN for simple discrete actions, SAC for off-policy continuous control
-- PPO / SAC: generate a separate actor network and critic network, saved as actor.save("output/actor.keras") and critic.save("output/critic.keras")
-- DQN: single network saved as qnetwork.save("output/qnetwork.keras")
-- All model files MUST be saved under the output/ directory — e.g. model.save("output/actor.keras")
-- Wrap any uploaded data in a custom gymnasium.Env subclass inside the script
-- The training loop uses env.step() / env.reset() and trajectory collection — do NOT use model.fit()
-- Add gymnasium to the script's imports
-- Include a comment explaining the reward function design rationale
-</constraints>`
+# ML Plan: [Task Name]
+
+## 1. Problem Type & Task Framing
+[Binary/multi-class/regression/time-series/RL — why, based on dataset analysis]
+
+## 2. Feature Engineering
+[Column-by-column: what transformations, why, which columns are dropped/combined. Source: URL]
+
+## 3. Architecture
+### Selected Model: [Name]
+**Justification** (cite retrieved chunks):
+- Input → [shape] — why
+- Layer 1: Dense([N], activation='[X]') — why N units, why X activation [source: URL]
+- [continue for each layer]
+- Output: Dense([K], activation='[Y]') — why Y matches the task
+
+## 4. Hyperparameters
+| Parameter | Value | Justification | Source |
+|---|---|---|---|
+| learning_rate | ... | ... | [URL] |
+| batch_size | ... | ... | [URL] |
+| dropout | ... | ... | [URL] |
+
+## 5. Training Strategy
+- Optimizer: [name + config, with source citation]
+- LR schedule: [reason]
+- Early stopping: patience=20, restore_best_weights=True
+- Epochs: 200 (capped by EarlyStopping)
+- Train/val split: [ratio, reason]
+
+## 6. Expected Outputs & Evaluation
+- Primary metric: [AUC/RMSE/accuracy — why]
+- Output file: output/model.keras
+</plan_template>`
+
+// ── Phase-aware system prompt builder ────────────────────────────────────────
+function buildSystemPrompt(phase: string, planDoc: string | null): string {
+  if (phase === 'idle' || phase === 'researching') {
+    return SYSTEM_BASE + `
+
+<phase current="${phase}">
+CURRENT PHASE: RESEARCH
+
+Available tools: fetch_arxiv_papers, fetch_url, search_tensorflow_docs, ingest_url, finalize_research
+LOCKED tools (not available yet): query_research, produce_plan, approve_plan, run_code, edit_script, create_notebook
+
+BEHAVIOUR:
+1. DATASET JUST UPLOADED, NO CLEAR GOAL YET?
+   → Do NOT run tools. Greet the dataset (1 sentence). Ask ONE open-ended question about the goal.
+   → Do NOT name any architectures.
+
+2. USER HAS STATED A CLEAR GOAL?
+   → STEP 1: Call fetch_arxiv_papers with a domain-specific query (e.g. "tabular regression deep learning 2024")
+   → STEP 2: Call fetch_arxiv_papers AGAIN with a different angle (e.g. "neural network benchmark tabular data 2024")
+   → STEP 3: Call fetch_url on the TOP 3 most relevant paper URLs IN PARALLEL to read full text (methods, architecture, hyperparameters)
+   → STEP 4: For EACH fetch_url call, immediately call ingest_url with the same URL and title to index it into the vector store
+   → STEP 5: Call search_tensorflow_docs to verify the Keras 3 API for the top candidate architecture
+   → STEP 6: Call finalize_research to transition to the PLAN phase
+   → Do NOT form any architectural opinion yet. Do NOT describe what you found. Just move to planning.
+
+NEVER skip ingest_url after fetch_url — the vector store must be populated before planning.
+NEVER call finalize_research before fetching and ingesting at least 3 paper URLs.
+NEVER ask more than one question at a time.
+</phase>`
+  }
+
+  if (phase === 'planning') {
+    return SYSTEM_BASE + `
+
+<phase current="planning">
+CURRENT PHASE: PLANNING
+
+Available tools: query_research, produce_plan
+LOCKED tools (not available yet): fetch_arxiv_papers, fetch_url, ingest_url, run_code, edit_script, create_notebook
+
+BEHAVIOUR:
+1. Query the vector store at least 6 times with different targeted questions before writing the plan:
+   - "best architecture for [task type] from literature"
+   - "optimal layer sizes and depth for [task type]"
+   - "activation functions for [task type] output layer"
+   - "optimizer learning rate schedule [task type]"
+   - "regularization dropout rates [task type]"
+   - "evaluation metrics [task type]"
+   Query with different phrasings to maximise coverage.
+
+2. Synthesise ALL retrieved chunks into the plan document using the <plan_template> structure above.
+   - Every architecture decision MUST cite a specific source URL from the retrieved chunks.
+   - Every hyperparameter value MUST cite a source URL.
+   - Do NOT invent values from training knowledge — ground EVERYTHING in retrieved evidence.
+
+3. Call produce_plan with the complete markdown plan.
+
+4. STOP. Write exactly: "Here is the proposed plan based on the research. Let me know if you'd like any changes before I start building."
+
+5. Do NOT call edit_script, create_notebook, or run_code under any circumstances in this phase.
+</phase>`
+  }
+
+  if (phase === 'approved' || phase === 'building') {
+    const planBlock = planDoc
+      ? `\n<approved_plan>\n${planDoc}\n</approved_plan>`
+      : ''
+    return SYSTEM_BASE + `
+
+<phase current="${phase}">
+CURRENT PHASE: BUILD
+${planBlock}
+
+BEHAVIOUR:
+1. If the user just approved the plan (says "looks good", "proceed", "approved", "go ahead", etc.):
+   → Call approve_plan first to unlock code generation tools.
+
+2. BUILD FLOW (after approve_plan or if already in building phase):
+   → STEP 1: Call run_code to inspect the dataset:
+       run_code("import pandas as pd; df = pd.read_csv('dataset.csv'); print(df.shape); print(df.dtypes); print(df.head(2))")
+   → STEP 2: Write the complete script via edit_script(old_str="__REPLACE_ALL__", new_str=<full script>)
+       - EVERY architecture decision in code must trace back to the approved plan above
+       - EVERY in-code comment must reference the plan section or paper source
+   → STEP 3: Call create_notebook with ONLY a description (no script argument)
+   → STEP 4: If create_notebook returns validation errors, use read_script + edit_script to fix, then retry
+   → STEP 5: After create_notebook succeeds, reply with 3–5 bullet points: architecture, key hyperparameters, expected output. No code shown.
+
+3. USER ASKS TO CHANGE/IMPROVE THE MODEL?
+   → Acknowledge the change, call run_code / read_script, apply targeted edit_script changes
+   → Call create_notebook again with updated description
+   → Reply with 2–3 sentences describing what changed
+
+4. create_notebook RETURNS ERRORS?
+   → Fix ALL listed errors immediately without asking the user. Retry until ok: true.
+   → On HARD STOP: apologise, ask user to describe a simpler architecture.
+
+NEVER deviate from the approved plan's architecture without explicit user instruction.
+NEVER call approve_plan more than once.
+</phase>`
+  }
+
+  // Fallback — should not normally be reached
+  return SYSTEM_BASE
+}
 
 export async function POST(req: Request) {
   const { messages, sessionId }: { messages: UIMessage[]; sessionId: string | null } =
     await req.json()
 
   const provider   = getProvider()
-  const maxHistory = MAX_HISTORY_MSGS[provider] ?? 30
+  const maxHistory = MAX_HISTORY_MSGS[provider] ?? 40
+  const apiBase    = process.env.INTERNAL_API_URL ?? 'http://localhost:8000'
+
+  // Fetch current session phase from backend
+  let sessionPhase = 'idle'
+  let sessionPlan: string | null = null
+  if (sessionId) {
+    try {
+      const phaseRes = await fetch(`${apiBase}/platform/session/${sessionId}/phase`, {
+        signal: AbortSignal.timeout(5_000),
+      })
+      if (phaseRes.ok) {
+        const pd  = await phaseRes.json()
+        sessionPhase = pd.phase   ?? 'idle'
+        sessionPlan  = pd.plan_doc ?? null
+      }
+    } catch { /* non-fatal — default to idle */ }
+  }
 
   // Keep last N message turns to stay within context window limits
   const rawMessages = await convertToModelMessages(messages.slice(-maxHistory))
@@ -575,6 +756,14 @@ export async function POST(req: Request) {
         .filter(msg => typeof msg.content === 'string' && msg.content.trim() !== '')
     : prunedMessages
 
+  // Phase-gated tool set — script tools only available once plan is approved
+  const isBuilding = sessionPhase === 'approved' || sessionPhase === 'building'
+  const phaseTools = {
+    ...createResearchTools(sessionId),
+    ...createPlanningTools(sessionId),
+    ...(isBuilding ? { ...createScriptTools(sessionId), create_notebook: createNotebookTool(sessionId) } : {}),
+  }
+
   // Wrap all models with reasoning middleware — extracts <think>...</think> blocks
   // from the text stream into proper reasoning parts for the ThinkingBlock UI.
   // Anthropic/OpenAI native reasoning is handled separately but the middleware
@@ -586,10 +775,10 @@ export async function POST(req: Request) {
 
   const result = streamText({
     model          : model,
-    system         : SYSTEM,
+    system         : buildSystemPrompt(sessionPhase, sessionPlan),
     messages       : modelMessages,
-    tools          : { ...researchTools, ...createScriptTools(sessionId), create_notebook: createNotebookTool(sessionId) },
-    stopWhen       : stepCountIs(25),
+    tools          : phaseTools,
+    stopWhen       : stepCountIs(40),
     // Anthropic: cache the system prompt + auto-clear old tool uses when context grows large.
     // cacheControl marks the system prompt for ephemeral caching (reduces cost + TPM usage).
     // contextManagement clears old tool-use results at 60k tokens, keeping last 3 tool turns.

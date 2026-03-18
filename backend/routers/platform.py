@@ -550,6 +550,11 @@ async def create_notebook(session_id: str, payload: dict):
     session = get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
+    if session.phase not in ("approved", "building"):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Notebook creation is locked until the plan is approved. Current phase: '{session.phase}'."
+        )
 
     script      = payload.get("script", "")
     description = payload.get("description", "Training Notebook")
@@ -886,6 +891,16 @@ async def edit_script(session_id: str, payload: dict):
     session = get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
+    if session.phase not in ("approved", "building"):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Code generation is locked until the plan is approved. Current phase: '{session.phase}'. Complete research → planning → user approval first."
+        )
+    # Transition to building on first script write
+    if session.phase == "approved":
+        session.phase = "building"
+        from sessions import _persist_phase
+        _persist_phase(session)
     script_path = session.session_dir / "generated_script.py"
 
     old_str = payload.get("old_str", "")
@@ -991,3 +1006,139 @@ async def run_code(session_id: str, payload: dict):
         stdout = '\n'.join(lines[:200]) + f'\n... ({len(lines) - 200} more lines truncated)'
 
     return {"stdout": stdout, "exit_code": exit_code}
+
+
+# =============================================================================
+# Research vector store  (v0.7.0)
+# =============================================================================
+
+import pydantic as _pydantic
+
+_VALID_TRANSITIONS: dict[str, set[str]] = {
+    "idle"       : {"researching"},
+    "researching": {"planning"},
+    "planning"   : {"approved"},
+    "approved"   : {"building"},
+    "building"   : set(),
+}
+
+
+class _IngestRequest(_pydantic.BaseModel):
+    url  : str
+    title: str = ""
+
+
+class _QueryRequest(_pydantic.BaseModel):
+    query: str
+    k    : int = _pydantic.Field(default=6, ge=1, le=12)
+
+
+class _PhaseRequest(_pydantic.BaseModel):
+    phase   : str
+    plan_doc: str | None = None
+
+
+@router.post("/vectorstore/{session_id}/ingest")
+async def vectorstore_ingest(session_id: str, payload: _IngestRequest):
+    """Download a URL, extract text, chunk + embed it into the session FAISS index."""
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or expired")
+
+    import httpx
+    from vectorstore import ingest_text, get_lock
+    from sessions import _persist_phase
+
+    url = payload.url
+
+    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+        try:
+            resp = await client.get(url, headers={"User-Agent": "obsidian-networks-research/1.0"})
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Fetch failed for {url}: {e}")
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"HTTP {resp.status_code} fetching {url}")
+        content_type = resp.headers.get("content-type", "")
+        raw_bytes    = resp.content
+
+    # Extract plain text
+    text = ""
+    if "pdf" in content_type or url.lower().endswith(".pdf"):
+        try:
+            from pypdf import PdfReader
+            import io
+            reader = PdfReader(io.BytesIO(raw_bytes))
+            text   = "\n".join(page.extract_text() or "" for page in reader.pages)
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=f"PDF parse failed: {e}")
+    else:
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(raw_bytes, "html.parser")
+        for tag in soup(["script", "style", "nav", "footer", "header"]):
+            tag.decompose()
+        text = soup.get_text(separator=" ", strip=True)
+
+    if not text.strip():
+        raise HTTPException(status_code=422, detail="No text content extracted from URL")
+
+    # Transition idle → researching on first ingest
+    if session.phase == "idle":
+        session.phase = "researching"
+        _persist_phase(session)
+
+    async with get_lock(session_id):
+        total = ingest_text(session.session_dir, text, source_url=url, source_title=payload.title)
+
+    return {"ok": True, "chunks_total": total, "url": url}
+
+
+@router.post("/vectorstore/{session_id}/query")
+async def vectorstore_query(session_id: str, payload: _QueryRequest):
+    """Return top-k chunks from the session vector store most relevant to the query."""
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or expired")
+
+    from vectorstore import query as vs_query
+    results = vs_query(session.session_dir, payload.query, k=payload.k)
+    return {"results": results, "count": len(results)}
+
+
+@router.get("/session/{session_id}/phase")
+async def get_phase(session_id: str):
+    """Return the current research/planning phase of the session."""
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or expired")
+
+    from vectorstore import chunk_count
+    return {
+        "phase"      : session.phase,
+        "has_plan"   : session.plan_doc is not None,
+        "plan_doc"   : session.plan_doc,
+        "chunk_count": chunk_count(session.session_dir) if session.phase != "idle" else 0,
+    }
+
+
+@router.post("/session/{session_id}/phase")
+async def set_phase(session_id: str, payload: _PhaseRequest):
+    """Advance the session phase through the research → planning → approved → building state machine."""
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or expired")
+
+    allowed = _VALID_TRANSITIONS.get(session.phase, set())
+    if payload.phase not in allowed:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot transition from '{session.phase}' to '{payload.phase}'. Allowed next states: {sorted(allowed) or 'none'}."
+        )
+
+    session.phase = payload.phase
+    if payload.plan_doc is not None:
+        session.plan_doc = payload.plan_doc
+
+    from sessions import _persist_phase
+    _persist_phase(session)
+
+    return {"phase": session.phase}

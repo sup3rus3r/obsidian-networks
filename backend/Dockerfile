@@ -49,7 +49,10 @@ RUN pip install --no-cache-dir --prefix=/install \
     "imageio>=2.34.0" \
     "Pillow>=10.0.0" \
     "more-itertools>=10.0.0" \
-    "gymnasium>=0.29.0"
+    "gymnasium>=0.29.0" \
+    "sentence-transformers>=3.0.0" \
+    "faiss-cpu>=1.8.0" \
+    "pypdf>=4.0.0"
 
 # ── Stage 2: runtime image ────────────────────────────────────────────────────
 FROM python:3.11-slim AS runtime

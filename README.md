@@ -101,7 +101,7 @@ When a generated training script fails to compile, the platform automatically fe
 Most ML platforms assume you already know how to build models. **Obsidian Networks** inverts that assumption.
 
 - **No ML expertise required** — Describe your goal in plain English. The AI selects the architecture, verifies the API, writes the code, and trains the model.
-- **Research-backed output** — Before generating a single line of code, the agent queries arXiv and the TensorFlow/Keras documentation. Every script is grounded in recent literature.
+- **Research-backed output** — Before generating a single line of code, the agent fetches full paper text from arXiv, indexes it into a local FAISS vector store, and produces a cited plan document. Every architectural decision traces back to a specific paper chunk with a source URL.
 - **End-to-end in one session** — From raw CSV to a trained `.keras` file without switching tools, writing boilerplate, or managing environments.
 - **Time series support** — Upload hourly or daily data and receive a complete LSTM or Temporal Fusion Transformer script with correct temporal windowing and no data leakage.
 - **Reinforcement learning support** — Describe an RL problem — trading agent, game controller, robot policy — and receive a complete Gymnasium environment, actor/critic networks, and a training loop.
@@ -113,19 +113,22 @@ Most ML platforms assume you already know how to build models. **Obsidian Networ
 ## How It Works
 
 ```
-Upload dataset  →  Describe your goal  →  Compile & Train  →  Download your model
+Upload dataset  →  Describe your goal  →  Research  →  Plan  →  Build  →  Download
 ```
 
 **1. Research**
-The AI agent queries arXiv for papers relevant to your problem domain and searches the TensorFlow/Keras docs to verify current API signatures before writing a single line of code.
+The AI agent fetches full paper text from arXiv (HTML render or PDF) for your problem domain, searches the TensorFlow/Keras docs to verify current API signatures, and **indexes everything into a per-session FAISS vector store** using a local sentence-transformers embedding model. No paper content is discarded — the full text is chunked and embedded so it can be retrieved during planning.
 
-**2. Generate**
-A complete, runnable Python training script is produced using the Keras Functional API — with dataset-aware preprocessing (Normalization, StringLookup, TextVectorization, timeseries windowing), EarlyStopping, ModelCheckpoint, and the correct save pattern for your architecture.
+**2. Plan**
+The agent queries the vector store with targeted questions (architecture type, layer sizes, activations, optimizer, regularisation, evaluation metrics) and synthesises findings into a **structured Plan Document** — covering problem framing, feature engineering, architecture with mathematical justification, hyperparameters with citations, and training strategy. Every decision cites a specific retrieved chunk with its source URL. The plan is presented to you for review before any code is written.
 
-**3. Compile**
+**3. Build**
+Only after you approve the plan does the agent generate code. Every architecture decision in the script is traceable back to the approved plan. The script is validated and saved as a downloadable Jupyter notebook.
+
+**4. Compile**
 Click **Compile & Train**. The backend validates the script at the AST level and runs it in an isolated subprocess inside a hardened Docker sandbox. Progress, per-epoch metrics, and loss/accuracy charts stream back to the UI in real time via SSE.
 
-**4. Download**
+**5. Download**
 Grab your trained `.keras` model file(s), the auto-generated Jupyter notebook, and any training plots from the Downloads panel — ready to deploy or continue iterating anywhere.
 
 ---
@@ -276,7 +279,10 @@ No external services required beyond your LLM API key.
 **How it works:**
 
 1. The Next.js frontend proxies all `/api/platform/*` requests to the FastAPI backend via `next.config.ts` rewrites. Large file uploads bypass the proxy entirely, going directly to the backend at `NEXT_PUBLIC_UPLOAD_URL` to avoid buffering limits.
-2. The AI chat route (`app/api/chat/route.ts`) calls `streamText` with research tools (`fetch_arxiv_papers`, `search_tensorflow_docs`, `fetch_url`), script development tools (`run_code`, `read_script`, `edit_script`), and `create_notebook`.
+2. The AI chat route (`app/api/chat/route.ts`) operates in three strict phases gated by a backend state machine:
+   - **Research phase**: `fetch_arxiv_papers`, `fetch_url`, `search_tensorflow_docs` — paper content is automatically indexed into a per-session FAISS vector store via `ingest_url`
+   - **Planning phase**: `query_research` retrieves relevant chunks; `produce_plan` submits a cited markdown plan document for user approval
+   - **Build phase** (unlocked after user approves): `run_code`, `edit_script`, `create_notebook` — code generation grounded in the approved plan
 3. The agent writes the training script via `edit_script(old_str="__REPLACE_ALL__", ...)`, then calls `create_notebook` with only a description. The backend reads the saved script, applies AST/regex patches, validates it, and wraps it in a `.ipynb` notebook.
 4. The Celery worker validates the script at the AST level, runs it in a subprocess with a stripped environment, and writes `.keras` files and plot images to the session's output directory.
 5. Training progress and per-epoch metrics stream back to the frontend via Server-Sent Events; completed model files and plots appear in the Downloads panel.
@@ -429,6 +435,7 @@ Two sample datasets are included in the repository root to get started immediate
 | Backend API | FastAPI 0.128+, Python 3.11, uv |
 | Task Queue | Celery 5, Redis 7 |
 | ML Runtime | TensorFlow 2.16+, Keras 3, NumPy, Pandas, scikit-learn, Gymnasium |
+| Vector Store | FAISS (CPU), sentence-transformers (`all-MiniLM-L6-v2`), pypdf |
 | Visualisation | Matplotlib, Seaborn, Statsmodels |
 | Notebook | nbformat |
 | Deployment | Docker, Docker Compose |
@@ -454,10 +461,11 @@ obsidian-networks/
 │   └── lib/                        # Multi-provider model resolver, utilities
 ├── backend/                        # FastAPI application + Celery worker
 │   ├── routers/
-│   │   └── platform.py             # Session, upload, analysis, notebook, compile, image serving
+│   │   └── platform.py             # Session, upload, analysis, notebook, compile, image serving, vectorstore + phase endpoints
+│   ├── vectorstore.py              # FAISS index management, sentence-transformers embedding, chunking
 │   ├── tasks.py                    # Celery task — AST validation + subprocess run + metrics parsing
-│   ├── sessions.py                 # Session directory management + TTL cleanup
-│   └── main.py                     # FastAPI app, CORS, router registration
+│   ├── sessions.py                 # Session directory management + TTL cleanup + phase state machine
+│   └── main.py                     # FastAPI app, CORS, router registration, embedding model warm-up
 ├── docker-compose.yml              # Full stack: frontend + api + worker + redis
 ├── worker-seccomp.json             # Seccomp profile blocking dangerous syscalls in worker
 ├── .env.example                    # Root environment variables with documentation
@@ -500,6 +508,35 @@ Each session's files are isolated in a per-session directory that no other sessi
 
 ## Recent Updates
 
+### v0.7.0 — Research → Plan → Build Pipeline
+
+The entire code-generation workflow has been rearchitected around a three-phase pipeline backed by a real vector store:
+
+**Research phase (new)**
+- `fetch_url` now triggers `ingest_url`, which downloads the full paper independently (no truncation) and indexes it into a per-session **FAISS vector store** using `all-MiniLM-L6-v2` embeddings from sentence-transformers
+- Papers are chunked at 400 words with 80-word overlap and stored with source URL + title metadata
+- arXiv abstract truncation raised from 500 → 2000 characters; PDF fetch timeout raised from 10s → 45s
+- New `finalize_research` tool transitions the session to planning phase after all sources are indexed
+
+**Planning phase (new)**
+- Agent queries the vector store with `query_research` (minimum 6 targeted queries) to retrieve the most relevant chunks before writing a single line of code
+- `produce_plan` submits a structured **Plan Document** covering: problem framing, feature engineering, architecture with mathematical justification, hyperparameters with source citations, training strategy, and evaluation metrics
+- Every hyperparameter and architecture decision cites a specific retrieved chunk's source URL — no more decisions from training-data priors
+- The plan is shown to the user for review and approval before build begins
+
+**Build phase (enforced)**
+- `edit_script`, `create_notebook`, and `run_code` are hard-locked until `approve_plan` is called
+- The backend enforces this at the API level (HTTP 403 if phase is not `approved` or `building`)
+- Every in-code comment references the approved plan section or paper source
+- Session phase persisted to disk (`phase.txt`, `plan.md`) — survives backend restarts within TTL
+
+**Infrastructure**
+- New `backend/vectorstore.py` module: FAISS index management, sentence-transformers embedding, chunking, per-session asyncio locks
+- New backend endpoints: `POST /platform/vectorstore/{session_id}/ingest`, `POST /platform/vectorstore/{session_id}/query`, `GET/POST /platform/session/{session_id}/phase`
+- Embedding model pre-warmed at startup (avoids 5–15s first-request latency)
+- New dependencies: `faiss-cpu>=1.8.0`, `sentence-transformers>=3.0.0`, `pypdf>=4.0.0`
+- `stepCountIs` limit raised from 25 → 40 to accommodate the research + planning tool budget
+
 ### v0.6.0 — Reinforcement Learning + Large Uploads + Script Reliability
 - **RL support**: Full PPO, DQN, and SAC generation with custom Gymnasium environments. Separate validator rules for RL scripts (no `model.fit()` required; saves `actor.keras`/`critic.keras`/`qnetwork.keras`). `patch_canonical_plots` skips RL scripts to avoid crashes on custom training loops.
 - **Large file uploads**: Uploads up to 500 MB now go directly from the browser to the backend (`NEXT_PUBLIC_UPLOAD_URL`), bypassing Next.js proxy buffering. Starlette multipart parser raised to 10 GB part limit via manual `MultiPartParser` instantiation.
@@ -540,6 +577,7 @@ Each session's files are isolated in a per-session directory that no other sessi
 
 ## Roadmap
 
+- [x] Research → Plan → Build pipeline (FAISS vector store, cited plan document, phase-gated code generation)
 - [ ] Image dataset support (upload folder of images, auto-generate CNN/ViT architectures)
 - [x] Time series forecasting templates (LSTM, Temporal Fusion Transformer)
 - [x] Training metrics visualisation (live loss/accuracy charts during compilation)
