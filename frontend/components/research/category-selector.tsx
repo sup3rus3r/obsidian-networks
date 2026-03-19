@@ -3,7 +3,7 @@
 import { type ResearchCategory } from '@/app/api/platform'
 import {
   Eye, Type, Music2, TrendingUp, GitFork,
-  Layers, Table2, Star, Sparkles,
+  Layers, Table2, Star, Sparkles, Gamepad2,
 } from 'lucide-react'
 
 const CATEGORY_ICONS: Record<string, React.ElementType> = {
@@ -16,6 +16,7 @@ const CATEGORY_ICONS: Record<string, React.ElementType> = {
   tabular               : Table2,
   recommendation        : Star,
   generative            : Sparkles,
+  reinforcement_learning: Gamepad2,
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -28,6 +29,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   tabular               : 'border-[#39FF14]/30 bg-[#39FF14]/5 hover:border-[#39FF14]/60 hover:bg-[#39FF14]/10 [&.selected]:border-[#39FF14] [&.selected]:bg-[#39FF14]/15',
   recommendation        : 'border-rose-500/30 bg-rose-500/5 hover:border-rose-500/60 hover:bg-rose-500/10 [&.selected]:border-rose-500 [&.selected]:bg-rose-500/15',
   generative            : 'border-purple-500/30 bg-purple-500/5 hover:border-purple-500/60 hover:bg-purple-500/10 [&.selected]:border-purple-500 [&.selected]:bg-purple-500/15',
+  reinforcement_learning: 'border-red-500/30 bg-red-500/5 hover:border-red-500/60 hover:bg-red-500/10 [&.selected]:border-red-500 [&.selected]:bg-red-500/15',
 }
 
 const CATEGORY_ICON_COLORS: Record<string, string> = {
@@ -40,6 +42,7 @@ const CATEGORY_ICON_COLORS: Record<string, string> = {
   tabular               : 'text-[#39FF14]',
   recommendation        : 'text-rose-400',
   generative            : 'text-purple-400',
+  reinforcement_learning: 'text-red-400',
 }
 
 // Static fallback if API categories aren't loaded yet
@@ -51,8 +54,9 @@ const STATIC_CATEGORIES: ResearchCategory[] = [
   { id: 'graph',                 label: 'Graph',          description: 'GCN, GAT, node/link/graph classification',  domains: ['graph'],         default_architectures: ['GCN', 'GAT'] },
   { id: 'multimodal_text_image', label: 'Multimodal',     description: 'CLIP, Flamingo, cross-modal learning',      domains: ['multimodal'],    default_architectures: ['CLIP', 'Flamingo'] },
   { id: 'tabular',               label: 'Tabular',        description: 'MLP, ResNet-Tabular, structured data',      domains: ['tabular'],       default_architectures: ['MLP', 'ResNet-Tabular'] },
-  { id: 'recommendation',        label: 'Recommendation', description: 'Embedding-CF, attention-based rec systems', domains: ['recommendation'],default_architectures: ['Embedding-CF', 'Attention-Rec'] },
-  { id: 'generative',            label: 'Generative',     description: 'VAE, GAN, diffusion, image synthesis',      domains: ['generative'],    default_architectures: ['VAE', 'GAN'] },
+  { id: 'recommendation',         label: 'Recommendation', description: 'Embedding-CF, attention-based rec systems', domains: ['recommendation'],default_architectures: ['Embedding-CF', 'Attention-Rec'] },
+  { id: 'generative',             label: 'Generative',     description: 'VAE, GAN, diffusion, image synthesis',      domains: ['generative'],    default_architectures: ['VAE', 'GAN'] },
+  { id: 'reinforcement_learning', label: 'Reinforcement Learning', description: 'Policy optimization, value-based, actor-critic, model-based RL', domains: ['rl'], default_architectures: ['PPO', 'DQN', 'SAC'] },
 ]
 
 interface CategorySelectorProps {
@@ -75,6 +79,7 @@ export function CategorySelector({ categories, selected, onSelect }: CategorySel
         return (
           <button
             key={cat.id}
+            type="button"
             onClick={() => onSelect(cat.id)}
             className={`selected:border-current cursor-pointer rounded-lg border p-3 text-left transition-all duration-150 ${colorClass} ${isSelected ? 'selected' : ''}`}
           >

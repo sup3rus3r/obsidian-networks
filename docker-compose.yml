@@ -80,7 +80,9 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     command: celery -A tasks_research.research_celery_app worker --loglevel=info --pool=solo
+    working_dir: /app
     environment:
+      - PYTHONPATH=/app
       - REDIS_URL=redis://redis:6379/0
       - MONGO_URL=mongodb://mongo:27017
       - MONGO_DB_NAME=${MONGO_DB_NAME:-obsidian}

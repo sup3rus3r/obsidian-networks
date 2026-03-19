@@ -58,7 +58,11 @@ RUN pip install --no-cache-dir --timeout 300 --prefix=/install \
     "pypdf>=4.0.0" \
     "arxiv>=2.0.0" \
     "sympy>=1.12" \
-    "networkx>=3.0"
+    "networkx>=3.0" \
+    "anthropic>=0.40.0" \
+    "openai>=1.50.0" \
+    "redis>=5.0.0" \
+    "docker>=7.0.0"
 
 # ── Stage 2: runtime image ────────────────────────────────────────────────────
 FROM python:3.11-slim AS runtime

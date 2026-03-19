@@ -98,6 +98,24 @@ This is architecture search that used to require a dedicated research team. Now 
 
 ---
 
+## Real-World Use Cases
+
+**Early warning in a hospital ward.** Nurses document vitals and lab results every shift. Nobody has time to read all of it. Upload the EHR export, describe what deterioration looks like in your cohort, and get a model that flags the patients most likely to crash overnight — built on the sepsis prediction literature, trained on your data, not some generic benchmark.
+
+**Predictive maintenance without the ML team.** Three years of vibration and temperature sensor logs from a production line. The failures are in there — they always were. Describe what a failure event looks like and the platform finds the temporal patterns that precede it, handles the lag windows correctly, and hands back something the maintenance team can actually use.
+
+**Credit risk that doesn't stop at logistic regression.** There's always more signal in the data than a linear model can reach. Upload the application features, describe what default looks like, and get a deep tabular model trained on current research — with a full methodology writeup that explains every decision, ready to go in front of a risk committee.
+
+**Climate forecasting on a small team's budget.** Thirty years of regional precipitation readings and a multi-step forecasting question that keeps getting pushed back because nobody has time to implement it properly. Describe the horizon and the spatial structure. The platform reads the literature, picks the right architecture, handles the windowing, and trains. What was sitting in a backlog for two years gets done in an afternoon.
+
+**Gene expression classification with 20,000 features and 400 samples.** Most tools don't handle this well — they ignore the dimensionality problem or the class imbalance or both. Describe the tissue classes and the known imbalance. The platform finds the papers that specifically address this setup and builds accordingly.
+
+**Recommendations that don't collapse on new users.** No interaction history, no embeddings, nothing to work from. Cold start is a solved problem in the research literature but a hard one to implement from scratch. Describe the constraint, describe the content, and get an architecture built around it rather than one that just pretends the problem doesn't exist.
+
+**Finding a better execution policy without a six-week ablation study.** You have a working approach but suspect there's something better. Set a research goal in Autonomous Research Mode, point it at the RL domain, and let it run. Eight agents generate candidates, train them, score them on novelty and efficiency, and recurse on the top performers. By morning there's a ranked leaderboard. The answer to "is there something better?" used to require a dedicated research sprint. Now it runs while you sleep.
+
+---
+
 ## It Fixes Its Own Mistakes
 
 Code fails sometimes. That is not a problem here. When something does not compile or run correctly, the platform diagnoses what went wrong, rewrites what it needs to, and tries again — on its own, without you having to do anything. You will see it happen in the chat. By the time you look back, it has usually already fixed it.

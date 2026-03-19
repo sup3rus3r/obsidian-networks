@@ -22,6 +22,7 @@ const CATEGORY_DEFAULT_PROMPTS: Record<string, string> = {
   tabular               : 'Explore deep learning architectures that consistently outperform XGBoost on structured tabular data.',
   recommendation        : 'Find embedding-based architectures for collaborative filtering with cold-start resilience.',
   generative            : 'Discover VAE variants with disentangled latent representations for controllable image generation.',
+  reinforcement_learning: 'Discover efficient policy network architectures for continuous control tasks like LunarLander and CartPole.',
 }
 
 // Domain options per category
@@ -35,6 +36,7 @@ const CATEGORY_DOMAINS: Record<string, string[]> = {
   tabular               : ['tabular'],
   recommendation        : ['recommendation'],
   generative            : ['generative'],
+  reinforcement_learning: ['rl'],
 }
 
 interface ResearchLaunchFormProps {

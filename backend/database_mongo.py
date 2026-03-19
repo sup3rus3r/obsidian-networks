@@ -2,8 +2,8 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from typing import Optional
 import os
 
-MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
-MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "learning_scheduler")
+MONGO_URL     = os.getenv("MONGO_URL",     "mongodb://localhost:27017")
+MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "obsidian")
 
 client: Optional[AsyncIOMotorClient] = None
 db = None
@@ -22,4 +22,8 @@ async def close_mongo_connection():
 
 
 def get_database():
+    global client, db
+    if db is None:
+        client = AsyncIOMotorClient(MONGO_URL)
+        db = client[MONGO_DB_NAME]
     return db

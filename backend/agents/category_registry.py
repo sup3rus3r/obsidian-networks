@@ -20,6 +20,7 @@ CATEGORY_TO_DOMAINS: dict[str, list[str]] = {
     "multimodal_text_image" : ["multimodal", "vision", "language"],
     "tabular"               : ["tabular"],
     "recommendation"        : ["recommendation", "graph"],
+    "reinforcement_learning": ["rl"],
 }
 
 CATEGORY_TO_DEFAULT_ARCHITECTURES: dict[str, list[str]] = {
@@ -31,6 +32,7 @@ CATEGORY_TO_DEFAULT_ARCHITECTURES: dict[str, list[str]] = {
     "multimodal_text_image" : ["clip", "flamingo"],
     "tabular"               : ["mlp", "resnet_tabular"],
     "recommendation"        : ["embedding_cf", "attention_rec"],
+    "reinforcement_learning": ["dqn", "ppo"],
 }
 
 # ── Full category definitions ─────────────────────────────────────────────────
@@ -331,6 +333,44 @@ DATASET_CATEGORIES: dict[str, dict] = {
         "public_apis": [
             {"id": "huggingface_adult",    "name": "Adult Income",       "provider": "huggingface"},
             {"id": "huggingface_california","name": "California Housing", "provider": "huggingface"},
+        ],
+    },
+
+    "reinforcement_learning": {
+        "id"         : "reinforcement_learning",
+        "name"       : "Reinforcement Learning",
+        "description": "Policy optimization, value-based methods, actor-critic, model-based RL",
+        "dataset_types": [
+            {
+                "type"       : "policy_optimization",
+                "description": "Discover novel policy network architectures for continuous/discrete control",
+                "example_task": "Find efficient actor-critic architectures for CartPole and LunarLander",
+                "domains"    : ["rl"],
+                "recommended_architectures": ["ppo", "a3c", "sac"],
+            },
+            {
+                "type"       : "value_estimation",
+                "description": "Discover value function architectures for Q-learning and TD methods",
+                "example_task": "Find compact Q-network architectures for Atari environments",
+                "domains"    : ["rl"],
+                "recommended_architectures": ["dqn", "dueling_dqn", "rainbow"],
+            },
+            {
+                "type"       : "model_based",
+                "description": "Discover world model architectures that learn environment dynamics",
+                "example_task": "Find sample-efficient world models for MuJoCo locomotion tasks",
+                "domains"    : ["rl"],
+                "recommended_architectures": ["dreamer", "mbpo"],
+            },
+        ],
+        "synthetic_generators": [
+            {"id": "gym_cartpole",   "name": "CartPole-v1",    "description": "Classic pole balancing control task"},
+            {"id": "gym_lunarlander","name": "LunarLander-v2", "description": "Continuous lunar landing environment"},
+            {"id": "gym_mountaincar","name": "MountainCar",    "description": "Sparse reward hill-climbing task"},
+        ],
+        "public_apis": [
+            {"id": "gym_atari",   "name": "Atari (ALE)",   "provider": "gymnasium"},
+            {"id": "gym_mujoco",  "name": "MuJoCo",        "provider": "gymnasium"},
         ],
     },
 

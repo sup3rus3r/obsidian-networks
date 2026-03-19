@@ -58,35 +58,30 @@ class CategoryInfo(BaseModel):
 # ── Research session request ──────────────────────────────────────────────────
 
 class ResearchModeWithCategoryRequest(BaseModel):
-    category_id: str
-    dataset_type: str | None = None
-    data_source: DataSource
-    base_model: str = "claude-sonnet-4-6"
-    auto_select_domains: bool = True
-    preferred_domains: list[str] | None = None
+    domain                    : str
+    category                  : str
+    task_description          : str
+    population_size           : int = Field(default=3, ge=1, le=20)
+    max_generations           : int = Field(default=3, ge=1, le=50)
     enable_real_data_validation: bool = False
-    real_data_source: DataSource | None = None
-    real_data_split: str | None = "test"
-    real_data_size: int | None = 1000
-    max_depth: int = Field(default=5, ge=1, le=10)
-    max_generations: int = Field(default=10, ge=1, le=50)
-    population_size: int = Field(default=5, ge=1, le=20)
-    max_time_mins: int = Field(default=30, ge=5, le=180)
+    real_data_path            : str | None = None
 
 
 # ── Data preparation ──────────────────────────────────────────────────────────
 
 class PrepareDataRequest(BaseModel):
-    data_source: DataSource
+    source    : DataSource
+    category  : str | None = None
     subset_size: int | None = None
 
 
 class DataPreparationStatus(BaseModel):
-    task_id: str
-    status: str                           # "downloading" | "processing" | "completed" | "failed"
-    progress: float = 0.0                 # 0.0 – 1.0
-    message: str
-    data_path: str | None = None
+    task_id   : str
+    status    : str
+    progress  : float = 0.0
+    message   : str
+    data_path : str | None = None
+    created_at: str | None = None
     metadata: dict | None = None
 
 
@@ -135,19 +130,10 @@ class CandidateResponse(BaseModel):
 
 class ResearchSessionResponse(BaseModel):
     research_session_id: str
-    user_session_id: str | None = None
-    category_id: str
-    domains: list[str]
-    dataset_type: str | None = None
-    base_model: str
-    status: str                           # "preparing" | "running" | "completed" | "failed" | "cancelled"
-    max_depth: int
-    max_generations: int
-    population_size: int
-    current_generation: int = 0
-    current_depth: int = 0
-    created_at: str
-    completed_at: str | None = None
+    status             : str
+    domain             : str
+    category           : str
+    created_at         : str
 
 
 # ── SSE progress events ───────────────────────────────────────────────────────
@@ -165,11 +151,11 @@ class ResearchProgressEvent(BaseModel):
 # ── Compile candidate into user session ───────────────────────────────────────
 
 class CompileCandidateRequest(BaseModel):
-    user_session_id: str
+    architecture_name: str
 
 
 class CompileCandidateResponse(BaseModel):
-    user_session_id: str
-    phase: str = "approved"
     architecture_name: str
-    message: str
+    code             : str
+    composite_score  : float
+    filename         : str
