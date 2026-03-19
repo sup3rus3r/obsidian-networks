@@ -218,10 +218,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const nearBottom = useRef(true)
 
   // File upload state
-  const [pendingFile,     setPendingFile]     = useState<File | null>(null)
+  const [pendingFiles,    setPendingFiles]    = useState<File[]>([])
   const [uploadProgress,  setUploadProgress]  = useState(0)
   const [isUploading,     setIsUploading]     = useState(false)
   const [uploadError,     setUploadError]     = useState<string | null>(null)
+  const [supportsVision,  setSupportsVision]  = useState<boolean | null>(null)
+
+  useEffect(() => {
+    fetch('/api/provider').then(r => r.json()).then(d => setSupportsVision(d.supportsVision)).catch(() => setSupportsVision(null))
+  }, [])
 
   // Local dataset cards inserted between messages — restored from sessionStorage on mount
   const [localCards, setLocalCards] = useState<LocalCard[]>(() => {
@@ -306,7 +311,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   }, [messages, localCards])
 
   const handleFileSelect = useCallback((file: File) => {
-    setPendingFile(file)
+    const isImage = file.type.startsWith('image/')
+    setPendingFiles(prev => isImage ? [...prev, file] : [file])
     setUploadProgress(0)
     setUploadError(null)
   }, [])
@@ -317,42 +323,53 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     if (isLoading || isUploading) return
 
     let schemaBlock = ''
-    const fileForUpload = pendingFile
+    const filesToUpload = pendingFiles
+    const isVisionFile = filesToUpload.length > 0 &&
+      (filesToUpload[0].type.startsWith('image/') || filesToUpload[0].type.startsWith('video/'))
 
-    if (fileForUpload && sessionId) {
+    if (filesToUpload.length > 0 && sessionId) {
       setIsUploading(true)
       setUploadError(null)
 
-      const uploaded = await uploadDataset(sessionId, fileForUpload, setUploadProgress)
-
-      if (!uploaded) {
-        setUploadError('Upload failed. Please try again.')
-        setIsUploading(false)
-        return
+      for (const file of filesToUpload) {
+        const uploaded = await uploadDataset(sessionId, file, setUploadProgress)
+        if (!uploaded) {
+          setUploadError('Upload failed. Please try again.')
+          setIsUploading(false)
+          return
+        }
       }
 
-      const preview = await getDatasetPreview(sessionId) as DatasetPreview | null
-
-      if (preview) {
-        const cardId = `card-${Date.now()}`
-        const afterId = messages.length > 0 ? messages[messages.length - 1].id : 'top'
-        setLocalCards(prev => [
-          ...prev,
-          { id: cardId, afterMsgId: afterId, filename: fileForUpload.name, preview },
-        ])
-        schemaBlock = formatSchema('dataset.csv', preview)
+      if (isVisionFile) {
+        const mediaType = filesToUpload[0].type.startsWith('video/') ? 'video' : 'image'
+        const names = filesToUpload.map(f => f.name).join(', ')
+        schemaBlock = `\n\n[Attached ${filesToUpload.length} ${mediaType} file(s): ${names}. Focus on vision-based architectures and computer vision approaches.]`
+      } else {
+        const preview = await getDatasetPreview(sessionId) as DatasetPreview | null
+        if (preview) {
+          const cardId = `card-${Date.now()}`
+          const afterId = messages.length > 0 ? messages[messages.length - 1].id : 'top'
+          setLocalCards(prev => [
+            ...prev,
+            { id: cardId, afterMsgId: afterId, filename: filesToUpload[0].name, preview },
+          ])
+          schemaBlock = formatSchema('dataset.csv', preview)
+        }
       }
 
       setIsUploading(false)
-      setPendingFile(null)
+      setPendingFiles([])
 
-      // Signal the artifact panel to refresh its analysis card
       window.dispatchEvent(new Event('dataset-uploaded'))
     }
 
-    const messageText = trimmed || `I've uploaded a dataset. Please analyse it and suggest the best ML architecture.`
+    const defaultMessage = isVisionFile
+      ? `I've uploaded ${filesToUpload.length} ${filesToUpload[0].type.startsWith('video/') ? 'video' : 'image'} file(s). Please suggest the best vision architecture for this task.`
+      : `I've uploaded a dataset. Please analyse it and suggest the best ML architecture.`
+
+    const messageText = trimmed || defaultMessage
     sendMessage({ text: messageText + schemaBlock })
-  }, [pendingFile, sessionId, isLoading, isUploading, messages, sendMessage])
+  }, [pendingFiles, sessionId, isLoading, isUploading, messages, sendMessage])
 
   const { isDragActive } = useDragDropZone(handleFileSelect)
 
@@ -377,9 +394,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         <div className="flex flex-1 flex-col items-center justify-center gap-4 px-8 text-center">
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 max-w-sm">
             <p className="text-sm text-zinc-400 leading-relaxed">
-              Upload a CSV or JSON dataset and describe your ML task.
-              I&apos;ll research the best architecture, generate a complete training notebook,
-              and compile a <code className="text-[#39FF14]/80">.keras</code> model for you.
+              Describe your ML problem — or attach a dataset to ground the solution in your data.
+              CSV, JSON, images, and video are all supported. I&apos;ll research the right architecture,
+              build a complete training notebook, and compile a <code className="text-[#39FF14]/80">.keras</code> model.
             </p>
           </div>
         </div>
@@ -426,19 +443,37 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           <p className="mb-2 text-xs text-red-400">{uploadError}</p>
         )}
 
+        {/* Vision capability warning */}
+        {pendingFiles.length > 0 &&
+          (pendingFiles[0].type.startsWith('image/') || pendingFiles[0].type.startsWith('video/')) &&
+          supportsVision === false && (
+          <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/8 px-3 py-2">
+            <span className="mt-0.5 text-amber-400">⚠</span>
+            <p className="text-xs text-amber-300/80">
+              Your current model may not support vision inputs. For best results, describe what&apos;s in the file and what you want to build instead.
+            </p>
+          </div>
+        )}
+
         <PromptInput
           onSubmit={handleSubmit}
           className="rounded-xl border border-zinc-700 bg-zinc-900"
         >
-          {/* Attachment chip shown above textarea when a file is selected */}
-          {pendingFile && (
-            <PromptInputHeader className="px-3 pt-2">
-              <AttachmentChip
-                file={pendingFile}
-                uploading={isUploading}
-                progress={uploadProgress}
-                onRemove={() => { setPendingFile(null); setUploadError(null) }}
-              />
+          {/* Attachment chips shown above textarea when files are selected */}
+          {pendingFiles.length > 0 && (
+            <PromptInputHeader className="flex flex-wrap gap-2 px-3 pt-2">
+              {pendingFiles.map((file, i) => (
+                <AttachmentChip
+                  key={`${file.name}-${i}`}
+                  file={file}
+                  uploading={isUploading}
+                  progress={uploadProgress}
+                  onRemove={() => {
+                    setPendingFiles(prev => prev.filter((_, idx) => idx !== i))
+                    setUploadError(null)
+                  }}
+                />
+              ))}
             </PromptInputHeader>
           )}
 
@@ -454,16 +489,17 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 <TooltipTrigger asChild>
                   <PromptInputButton
                     tooltip="Attach CSV or JSON dataset"
-                    disabled={isLoading || isUploading || !!pendingFile}
+                    disabled={isLoading || isUploading || (pendingFiles.length > 0 && !pendingFiles[0].type.startsWith('image/'))}
                     className="cursor-pointer text-zinc-400 hover:text-[#39FF14]"
                     onClick={() => {
                       // Trigger a hidden file input via a temporary input element
                       const input = document.createElement('input')
                       input.type = 'file'
-                      input.accept = '.csv,.json,text/csv,application/json'
+                      input.accept = '.csv,.json,text/csv,application/json,image/*,video/*'
+                      input.multiple = true
                       input.onchange = () => {
-                        const file = input.files?.[0]
-                        if (file) handleFileSelect(file)
+                        const files = Array.from(input.files ?? [])
+                        files.forEach(f => handleFileSelect(f))
                       }
                       input.click()
                     }}
@@ -472,7 +508,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                   </PromptInputButton>
                 </TooltipTrigger>
                 <TooltipContent side="top">
-                  <p>Attach CSV or JSON dataset</p>
+                  <p>Attach a file — CSV, JSON, image, or video</p>
                 </TooltipContent>
               </Tooltip>
               {/* Clear chat button — only shown when there are messages */}

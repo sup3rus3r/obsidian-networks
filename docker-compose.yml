@@ -79,7 +79,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: celery -A tasks_research.research_celery_app worker --loglevel=info --pool=solo
+    command: celery -A tasks_research.research_celery_app worker --loglevel=info --pool=solo -Q research
     working_dir: /app
     environment:
       - PYTHONPATH=/app

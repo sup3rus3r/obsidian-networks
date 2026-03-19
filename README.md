@@ -4,21 +4,15 @@
 
 ---
 
-**Every important problem in the world is, at its core, a question someone does not yet have the tools to answer.**
+Obsidian Networks is an open-source platform that takes a problem described in plain language and builds a working ML solution from it — reading the relevant research, selecting an architecture, writing and running the code, and returning something you can actually use.
 
-A doctor staring at a patient's file, wondering who will deteriorate overnight. A factory floor manager who knows something is wrong but cannot say what or when. A researcher with years of data and no way to hear what it is saying. A founder watching the numbers move and not knowing why. A small team trying to do something that used to require ten specialists and a budget they will never have.
+You describe the problem. It handles the rest: literature search, architecture selection, code generation, training, debugging. The output is a trained model and a Jupyter notebook you can open and modify.
 
-The gap between the question and the answer has never been a lack of intelligence. It has always been a lack of access — to the right expertise, the right tools, and the time to use them.
+It runs entirely on your own hardware. No data leaves your machine. No API calls to a training service. No account required beyond whatever LLM provider you choose to use.
 
-Obsidian Networks is our answer to that gap.
+Autonomous Research Mode goes further — instead of solving one problem, it runs an open-ended architecture search. Eight agents work in a loop across multiple generations: generating candidates, training them, scoring them, and recursing on the ones worth keeping. You set a domain and a goal, and it runs until it has something to show you.
 
-It reads the scientific literature so you don't have to. It designs the right approach for the problem you actually have. It writes the code, runs it, fixes what breaks, and hands you something that works — grounded in research, built for your data, ready to use. Not a starting point. Not a suggestion. A solution.
-
-It belongs to everyone. It runs on your hardware. Your data stays with you. There are no subscriptions, no gatekeepers, no one you need to ask.
-
-And with the latest release, it goes beyond what you ask of it. Autonomous Research Mode sets eight specialised agents to work in parallel — reading, reasoning, building, and scoring across generations of candidates — not just solving the problem in front of it, but searching the space of what is possible for things nobody has thought to look for yet. It runs while you sleep. It comes back with answers.
-
-**We built this because the tools to understand the world should belong to everyone who has the courage to ask a question. In pursuit of AGI.**
+**Built in pursuit of AGI. Open source under AGPL v3.**
 
 ---
 
@@ -42,15 +36,6 @@ And with the latest release, it goes beyond what you ask of it. Autonomous Resea
 
 ---
 
-## What is Obsidian Networks?
-
-Obsidian Networks is an open-source research and development platform that takes a problem — described in plain language — and works through it the way a skilled team would: reading the literature, forming a plan, building a solution, testing it, and handing you something ready to use.
-
-It works across the full range of what data can tell you. Predicting outcomes, detecting anomalies, forecasting the future, understanding behaviour, classifying the unknown, generating new things from existing ones. If the answer exists somewhere in your data, the platform will find a way to surface it.
-
-Beyond single problems, Autonomous Research Mode lets it operate independently — exploring entire domains overnight, running hundreds of experiments across generations, and surfacing discoveries that no one asked for but everyone needed. It is a research partner that never stops working.
-
----
 
 ## How It Works
 

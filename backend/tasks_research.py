@@ -29,16 +29,18 @@ research_celery_app = Celery(
     backend = REDIS_URL,
 )
 research_celery_app.conf.update(
-    task_serializer       = "json",
-    result_serializer     = "json",
-    accept_content        = ["json"],
-    task_track_started    = True,
-    task_acks_late        = True,
+    task_serializer            = "json",
+    result_serializer          = "json",
+    accept_content             = ["json"],
+    task_track_started         = True,
+    task_acks_late             = True,
     worker_prefetch_multiplier = 1,
+    task_default_queue         = "research",
     beat_schedule = {
         "check-idle-sessions": {
             "task"    : "tasks_research.check_idle_and_spawn",
-            "schedule": 60.0,    # every 60 s
+            "schedule": 60.0,
+            "options" : {"queue": "research"},
         },
     },
 )
@@ -209,7 +211,8 @@ def run_research_generation(self, research_session_id: str, context: dict):
         # Build agents with shared config
         agent_kwargs = {
             "research_session_id" : research_id,
-            "session_id"          : session_id,
+            "base_model"          : context.get("base_model", os.environ.get("AI_MODEL", "claude-sonnet-4-6")),
+            "domain"              : context.get("domain", "vision"),
         }
 
         try:
@@ -280,9 +283,9 @@ def run_research_generation(self, research_session_id: str, context: dict):
                     "previous_winner_arch"   : ctx.get("previous_winner_arch"),
                     "candidates_to_recurse"  : to_recurse,
                 })
-                run_research_generation.delay(
-                    research_session_id = research_id,
-                    context             = next_context,
+                run_research_generation.apply_async(
+                    kwargs = dict(research_session_id=research_id, context=next_context),
+                    queue  = "research",
                 )
             else:
                 # Session complete
@@ -362,9 +365,8 @@ def check_idle_and_spawn():
                     request = doc.get("request", {})
                     if request:
                         logger.info("Re-queuing stale research session %s", research_id)
-                        run_research_generation.delay(
-                            research_session_id = research_id,
-                            context             = {
+                        run_research_generation.apply_async(
+                            kwargs = dict(research_session_id=research_id, context={
                                 "session_id"                : doc.get("session_id", ""),
                                 "research_session_id"       : research_id,
                                 "domain"                    : request.get("domain", "vision"),
@@ -375,7 +377,8 @@ def check_idle_and_spawn():
                                 "enable_real_data_validation": request.get("enable_real_data_validation", False),
                                 "generation"                : 0,
                                 "depth"                     : 0,
-                            },
+                            }),
+                            queue = "research",
                         )
 
         except Exception as e:

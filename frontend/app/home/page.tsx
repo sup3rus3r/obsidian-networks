@@ -67,7 +67,10 @@ function Header({
             {osLabel[environment.os] ?? environment.os}
           </Badge>
           <Badge variant="outline" className="h-5 border-zinc-700 px-1.5 text-[10px] text-zinc-400">
-            {environment.label.split(' ')[0]}
+            {environment.hardware === 'nvidia_gpu' ? 'NVIDIA GPU'
+              : environment.hardware === 'apple_silicon' ? 'Apple Silicon'
+              : environment.hardware === 'google_colab' ? 'Colab'
+              : 'CPU'}
           </Badge>
         </div>
 

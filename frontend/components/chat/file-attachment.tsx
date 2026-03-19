@@ -6,7 +6,12 @@ import { X, Paperclip, FileText } from 'lucide-react'
 import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
 
-const ACCEPTED = { 'text/csv': ['.csv'], 'application/json': ['.json'] }
+const ACCEPTED = {
+  'text/csv'       : ['.csv'],
+  'application/json': ['.json'],
+  'image/*'        : ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tiff'],
+  'video/*'        : ['.mp4', '.mov', '.avi', '.mkv', '.webm'],
+}
 const MAX_BYTES = 500 * 1024 * 1024 // 500 MB
 
 // ── Attachment chip ───────────────────────────────────────────────────────────
@@ -75,7 +80,7 @@ export function PaperclipButton({ onFile, disabled }: PaperclipButtonProps) {
         type="button"
         onClick={open}
         disabled={disabled}
-        title="Attach CSV or JSON dataset"
+        title="Attach a dataset, image, or video"
         className={cn(
           'cursor-pointer flex h-[42px] w-9 shrink-0 items-center justify-center rounded-xl',
           'border border-zinc-700 bg-zinc-900 text-zinc-400',
@@ -102,8 +107,8 @@ export function DropOverlay({ isDragging }: DropOverlayProps) {
     <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/75 backdrop-blur-sm">
       <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-[#39FF14]/60 bg-zinc-900/80 px-12 py-10">
         <Paperclip className="h-8 w-8 text-[#39FF14]" />
-        <p className="text-sm font-medium text-zinc-100">Drop your CSV or JSON dataset</p>
-        <p className="text-xs text-zinc-500">Max 500 MB · .csv or .json</p>
+        <p className="text-sm font-medium text-zinc-100">Drop your file here</p>
+        <p className="text-xs text-zinc-500">Max 500 MB · CSV, JSON, image, or video</p>
       </div>
     </div>
   )
@@ -113,11 +118,12 @@ export function DropOverlay({ isDragging }: DropOverlayProps) {
 // Uses document listeners so the overlay fires anywhere in the browser window,
 // not just over a specific element.
 
-const ACCEPTED_EXTENSIONS = ['.csv', '.json']
+const ACCEPTED_EXTENSIONS = ['.csv', '.json', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tiff', '.mp4', '.mov', '.avi', '.mkv', '.webm']
 const ACCEPTED_MIME       = ['text/csv', 'application/json']
 
 function isAccepted(file: File): boolean {
   if (ACCEPTED_MIME.includes(file.type)) return true
+  if (file.type.startsWith('image/') || file.type.startsWith('video/')) return true
   const ext = '.' + (file.name.split('.').pop() ?? '').toLowerCase()
   return ACCEPTED_EXTENSIONS.includes(ext)
 }

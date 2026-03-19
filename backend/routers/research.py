@@ -129,21 +129,24 @@ async def start_research(
 
     # Dispatch Celery task
     from tasks_research import run_research_generation
-    run_research_generation.delay(
-        research_session_id = research_id,
-        context             = {
-            "session_id"               : obs_session_id,
-            "research_session_id"      : research_id,
-            "domain"                   : req.domain,
-            "category"                 : req.category,
-            "task_description"         : req.task_description,
-            "population_size"          : req.population_size,
-            "max_generations"          : req.max_generations,
-            "enable_real_data_validation": req.enable_real_data_validation,
-            "real_data_path"           : req.real_data_path,
-            "generation"               : 0,
-            "depth"                    : 0,
-        },
+    run_research_generation.apply_async(
+        kwargs = dict(
+            research_session_id = research_id,
+            context             = {
+                "session_id"               : obs_session_id,
+                "research_session_id"      : research_id,
+                "domain"                   : req.domain,
+                "category"                 : req.category,
+                "task_description"         : req.task_description,
+                "population_size"          : req.population_size,
+                "max_generations"          : req.max_generations,
+                "enable_real_data_validation": req.enable_real_data_validation,
+                "real_data_path"           : req.real_data_path,
+                "generation"               : 0,
+                "depth"                    : 0,
+            },
+        ),
+        queue = "research",
     )
 
     return ResearchSessionResponse(
