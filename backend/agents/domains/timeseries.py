@@ -1,0 +1,131 @@
+"""
+Time Series domain handler — LSTM, Transformer-TS, TCN architectures.
+"""
+from __future__ import annotations
+
+import json
+from typing import Any, Callable
+
+from .base_domain import BaseDomain
+
+
+class TimeSeriesDomain(BaseDomain):
+    name = "timeseries"
+    supported_architectures = ["lstm_ts", "transformer_ts", "tcn"]
+    mutation_operators = [
+        "layer_insertion", "attention_variant", "normalization_change",
+        "activation_change", "depth_change", "width_change",
+    ]
+    metrics = ["mse", "mae", "loss", "accuracy", "memory_mb", "inference_time_ms", "training_time_s"]
+
+    base_templates = {
+        "lstm_ts": {
+            "type"        : "lstm_ts",
+            "seq_len"     : 50,
+            "n_features"  : 1,
+            "forecast_horizon": 10,
+            "normalization": "layer_norm",
+            "activation"  : "tanh",
+            "layers": [
+                {"type": "lstm",  "units": 64,  "return_sequences": True,  "dropout": 0.2},
+                {"type": "lstm",  "units": 32,  "return_sequences": False, "dropout": 0.2},
+                {"type": "dense", "units": 64,  "activation": "relu"},
+                {"type": "dense", "units": 10,  "activation": "linear"},  # forecast_horizon outputs
+            ],
+        },
+        "transformer_ts": {
+            "type"        : "transformer_ts",
+            "seq_len"     : 50,
+            "n_features"  : 1,
+            "embed_dim"   : 64,
+            "forecast_horizon": 10,
+            "normalization": "layer_norm",
+            "activation"  : "gelu",
+            "attention"   : {"type": "multi_head", "num_heads": 4, "key_dim": 16},
+            "layers": [
+                {"type": "linear_proj",       "embed_dim": 64},
+                {"type": "pos_encoding",      "max_len": 50},
+                {"type": "transformer_block", "num_layers": 3, "mlp_dim": 128, "dropout": 0.1},
+                {"type": "dense",             "units": 10, "activation": "linear"},
+            ],
+        },
+    }
+
+    async def generate_mechanism(self, research_insights: str, llm_caller: Callable) -> list[dict]:
+        prompt = f"""
+You are a time series ML researcher. Based on:
+
+{research_insights}
+
+Derive 3 novel mechanisms for temporal sequence models.
+JSON array: [{{"name": str, "description": str, "sympy_expression": str}}]
+"""
+        raw = await llm_caller(prompt, force_claude=True, max_tokens=1200)
+        try:
+            start = raw.find("["); end = raw.rfind("]") + 1
+            return json.loads(raw[start:end])
+        except Exception:
+            return [{"name": "temporal_attention", "description": "Attention over time steps", "sympy_expression": "softmax(Q_t @ K_t.T / sqrt(d)) @ V_t"}]
+
+    async def propose_mutations(self, base_arch: str, mechanisms: list[dict], llm_caller: Callable) -> list[dict]:
+        template = self.get_base_template(base_arch)
+        prompt   = f"""
+Time series architecture: {json.dumps(template, indent=2)}
+Mechanisms: {json.dumps(mechanisms, indent=2)}
+Propose 3 mutations. Operators: {self.mutation_operators}
+JSON: [{{"architecture_name": str, "mutations": [str], "rationale": str}}]
+"""
+        raw = await llm_caller(prompt, force_claude=True, max_tokens=1200)
+        try:
+            start = raw.find("["); end = raw.rfind("]") + 1
+            proposals = json.loads(raw[start:end])
+        except Exception:
+            proposals = [{"architecture_name": f"{base_arch}_mutant", "mutations": ["attention_variant"], "rationale": "Default"}]
+
+        from agents.mutations import apply_mutations
+        return [{
+            "architecture_name": p.get("architecture_name", f"{base_arch}_mutant"),
+            "base_template"    : base_arch,
+            "mutations"        : p.get("mutations", []),
+            "spec"             : apply_mutations(template, p.get("mutations", [])),
+            "rationale"        : p.get("rationale", ""),
+        } for p in proposals]
+
+    async def generate_code(self, arch_spec: dict, llm_caller: Callable) -> str:
+        prompt = f"""
+Write a complete TensorFlow/Keras training script for this time series architecture:
+
+{json.dumps(arch_spec, indent=2)}
+
+Requirements:
+- Input: (N, 50, 1) sequences (N samples, 50 time steps, 1 feature)
+- Generate: X = np.cumsum(np.random.randn(1000, 50, 1), axis=1).astype(np.float32)
+- Target: y = X[:, -10:, 0] (last 10 steps as forecast)
+- Train 5 epochs, Adam, MSE loss
+- Save to output/model.keras
+- tensorflow, numpy only
+
+Return ONLY Python code.
+"""
+        code = await llm_caller(prompt, force_claude=True, max_tokens=3000)
+        if "```python" in code: code = code.split("```python")[1].split("```")[0]
+        elif "```" in code: code = code.split("```")[1].split("```")[0]
+        return code.strip()
+
+    def generate_synthetic_data(self, size: int = 1000, params: dict | None = None) -> Any:
+        from agents.synthetic_data import generate_timeseries
+        p = params or {}
+        return generate_timeseries(size=size, seq_len=p.get("seq_len", 50), seed=p.get("seed", 42))
+
+    async def evaluate(self, checkpoint_path: str, test_data: Any) -> dict:
+        try:
+            import tensorflow as tf
+            import numpy as np
+            X_test, y_test = test_data[1], test_data[3]
+            model = tf.keras.models.load_model(checkpoint_path)
+            y_pred = model.predict(X_test, verbose=0)
+            mse = float(np.mean((y_pred - y_test) ** 2))
+            mae = float(np.mean(np.abs(y_pred - y_test)))
+            return {"mse": mse, "mae": mae, "loss": mse}
+        except Exception as e:
+            return {"mse": 999.0, "mae": 999.0, "loss": 999.0, "error": str(e)}

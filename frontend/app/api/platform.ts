@@ -155,3 +155,132 @@ export const triggerCompile = async (sessionId: string): Promise<{ task_id: stri
     return null
   }
 }
+
+// ── Research Mode ─────────────────────────────────────────────────────────────
+
+export interface ResearchCategory {
+  id          : string
+  label       : string
+  description : string
+  domains     : string[]
+  default_architectures: string[]
+}
+
+export interface ResearchStartRequest {
+  domain                    : string
+  category                  : string
+  task_description          : string
+  population_size           : number
+  max_generations           : number
+  enable_real_data_validation: boolean
+  real_data_path            ?: string
+}
+
+export interface ResearchSession {
+  research_session_id: string
+  status             : string
+  domain             : string
+  category           : string
+  created_at         : string
+}
+
+export interface ResearchCandidate {
+  architecture_name   : string
+  composite_score     : number
+  novelty_score       : number
+  efficiency_score    : number
+  soundness_score     : number
+  generalization_score: number
+  next_action         : 'recurse' | 'archive' | 'discard'
+  synthetic_metrics   : Record<string, number>
+  memory_mb           : number
+  inference_time_ms   : number
+  param_count         : number
+  code               ?: string
+}
+
+export interface ResearchProgressEvent {
+  event_type          : string
+  research_session_id : string
+  generation         ?: number
+  message            ?: string
+  data               ?: Record<string, unknown>
+  timestamp           : string
+}
+
+export const getResearchCategories = async (): Promise<ResearchCategory[] | null> => {
+  try {
+    const res = await fetch(AppRoutes.ResearchCategories())
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.categories
+  } catch {
+    return null
+  }
+}
+
+export const startResearchSession = async (
+  req: ResearchStartRequest,
+): Promise<ResearchSession | null> => {
+  try {
+    const res = await fetch(AppRoutes.ResearchStart(), {
+      method     : 'POST',
+      credentials: 'include',
+      headers    : { 'Content-Type': 'application/json' },
+      body       : JSON.stringify(req),
+    })
+    if (!res.ok) return null
+    return res.json()
+  } catch {
+    return null
+  }
+}
+
+export const getResearchStatus = async (researchId: string) => {
+  try {
+    const res = await fetch(AppRoutes.ResearchStatus(researchId))
+    if (!res.ok) return null
+    return res.json()
+  } catch {
+    return null
+  }
+}
+
+export const getResearchCandidates = async (
+  researchId: string,
+): Promise<ResearchCandidate[] | null> => {
+  try {
+    const res = await fetch(AppRoutes.ResearchCandidates(researchId))
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.candidates
+  } catch {
+    return null
+  }
+}
+
+export const compileResearchCandidate = async (
+  researchId: string,
+  architectureName: string,
+): Promise<{ code: string; filename: string; composite_score: number } | null> => {
+  try {
+    const res = await fetch(AppRoutes.ResearchCompile(researchId), {
+      method : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body   : JSON.stringify({ architecture_name: architectureName }),
+    })
+    if (!res.ok) return null
+    return res.json()
+  } catch {
+    return null
+  }
+}
+
+export const cancelResearchSession = async (researchId: string): Promise<boolean> => {
+  try {
+    const res = await fetch(AppRoutes.ResearchCancel(researchId), { method: 'DELETE' })
+    return res.ok
+  } catch {
+    return false
+  }
+}

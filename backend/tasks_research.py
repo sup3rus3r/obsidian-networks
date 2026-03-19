@@ -1,0 +1,388 @@
+"""
+Celery tasks for Autonomous Research Mode.
+
+Tasks:
+  prepare_dataset_task      — validate + index a dataset source
+  prepare_real_data_task    — prepare real validation data (npz)
+  run_research_generation   — main research loop (one generation)
+  check_idle_and_spawn      — periodic task: resume idle sessions
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+
+from celery import Celery
+
+logger = logging.getLogger(__name__)
+
+REDIS_URL     = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+ARTIFACTS_DIR = Path(os.environ.get("RESEARCH_ARTIFACTS_DIR", "/research_artifacts"))
+
+# Separate Celery app so research tasks don't conflict with existing compilation tasks
+research_celery_app = Celery(
+    "research_tasks",
+    broker  = REDIS_URL,
+    backend = REDIS_URL,
+)
+research_celery_app.conf.update(
+    task_serializer       = "json",
+    result_serializer     = "json",
+    accept_content        = ["json"],
+    task_track_started    = True,
+    task_acks_late        = True,
+    worker_prefetch_multiplier = 1,
+    beat_schedule = {
+        "check-idle-sessions": {
+            "task"    : "tasks_research.check_idle_and_spawn",
+            "schedule": 60.0,    # every 60 s
+        },
+    },
+)
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _publish(research_id: str, event: dict):
+    """Publish a progress event to Redis pub/sub."""
+    try:
+        import redis as _redis
+        r = _redis.from_url(REDIS_URL, decode_responses=True)
+        r.publish(f"research:{research_id}", json.dumps(event))
+        r.close()
+    except Exception as e:
+        logger.warning("Redis publish failed: %s", e)
+
+
+async def _update_mongo_session(research_id: str, updates: dict):
+    """Update a research session document in MongoDB."""
+    try:
+        from database_mongo import get_database
+        db = get_database()
+        await db["research_sessions"].update_one(
+            {"_id": research_id},
+            {"$set": updates},
+        )
+    except Exception as e:
+        logger.warning("MongoDB update failed: %s", e)
+
+
+async def _save_candidates(research_id: str, scored_candidates: list[dict], generated_code: list[dict]):
+    """Upsert scored candidates into MongoDB."""
+    try:
+        from database_mongo import get_database
+        db = get_database()
+
+        # Build code lookup
+        code_map = {g["architecture_name"]: g.get("code", "") for g in generated_code}
+
+        for candidate in scored_candidates:
+            arch = candidate["architecture_name"]
+            doc  = {
+                "research_session_id": research_id,
+                "architecture_name"  : arch,
+                "composite_score"    : candidate.get("composite_score", 0),
+                "novelty_score"      : candidate.get("novelty_score", 0),
+                "efficiency_score"   : candidate.get("efficiency_score", 0),
+                "soundness_score"    : candidate.get("soundness_score", 0),
+                "generalization_score": candidate.get("generalization_score", 0),
+                "next_action"        : candidate.get("next_action", "discard"),
+                "synthetic_metrics"  : candidate.get("synthetic_metrics", {}),
+                "validation"         : candidate.get("validation"),
+                "memory_mb"          : candidate.get("memory_mb", 0),
+                "inference_time_ms"  : candidate.get("inference_time_ms", 0),
+                "param_count"        : candidate.get("param_count", 0),
+                "code"               : code_map.get(arch, ""),
+                "updated_at"         : _now_iso(),
+            }
+            await db["research_candidates"].update_one(
+                {"research_session_id": research_id, "architecture_name": arch},
+                {"$set": doc},
+                upsert=True,
+            )
+    except Exception as e:
+        logger.warning("Failed to save candidates to MongoDB: %s", e)
+
+
+# ── Dataset preparation ───────────────────────────────────────────────────────
+
+@research_celery_app.task(name="tasks_research.prepare_dataset_task", bind=True)
+def prepare_dataset_task(self, session_id: str, source: dict, category: str):
+    """Validate a dataset source and return summary info."""
+    import asyncio
+
+    async def _run():
+        source_type = source.get("type", "synthetic")
+
+        if source_type == "synthetic":
+            from agents.synthetic_data import get_synthetic_data
+            data = get_synthetic_data(category, size=100, params={})
+            return {
+                "status"     : "ready",
+                "source_type": "synthetic",
+                "category"   : category,
+                "sample_size": 100,
+                "message"    : "Synthetic data ready",
+            }
+
+        if source_type == "upload":
+            path = source.get("path", "")
+            if not Path(path).exists():
+                return {"status": "error", "message": f"File not found: {path}"}
+            return {"status": "ready", "source_type": "upload", "path": path}
+
+        if source_type == "huggingface":
+            return {
+                "status"     : "ready",
+                "source_type": "huggingface",
+                "dataset_id" : source.get("dataset_id", ""),
+                "message"    : "HuggingFace dataset will be streamed at training time",
+            }
+
+        return {"status": "error", "message": f"Unknown source type: {source_type}"}
+
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(_run())
+    finally:
+        loop.close()
+
+
+@research_celery_app.task(name="tasks_research.prepare_real_data_task", bind=True)
+def prepare_real_data_task(self, session_id: str, real_data_path: str):
+    """Validate that the real data npz file is readable."""
+    path = Path(real_data_path)
+    if not path.exists():
+        return {"status": "error", "message": f"Real data not found: {real_data_path}"}
+    if path.suffix != ".npz":
+        return {"status": "error", "message": "Only .npz format supported for real data"}
+
+    try:
+        import numpy as np
+        data = np.load(path)
+        keys = list(data.keys())
+        return {
+            "status" : "ready",
+            "path"   : str(path),
+            "keys"   : keys,
+            "message": "Real data validated successfully",
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# ── Main research generation task ─────────────────────────────────────────────
+
+@research_celery_app.task(name="tasks_research.run_research_generation", bind=True, max_retries=0)
+def run_research_generation(self, research_session_id: str, context: dict):
+    """
+    Execute one full generation of the research loop:
+      Researcher → Mathematician → Architect → Coder → Trainer → Evaluator → Validator → Critic
+
+    On completion:
+      - Saves candidates to MongoDB
+      - If any candidates scored > RECURSE_THRESHOLD and generation < max_generations → recurse
+      - Publishes session_complete or session_error to Redis
+    """
+    import asyncio
+
+    async def _run():
+        research_id   = research_session_id
+        generation    = context.get("generation", 0)
+        max_gen       = context.get("max_generations", 3)
+        session_id    = context.get("session_id", "")
+
+        logger.info("Research generation %d starting for session %s", generation, research_id)
+
+        _publish(research_id, {
+            "event_type"          : "generation_start",
+            "research_session_id" : research_id,
+            "generation"          : generation,
+            "timestamp"           : _now_iso(),
+        })
+
+        # Build agents with shared config
+        agent_kwargs = {
+            "research_session_id" : research_id,
+            "session_id"          : session_id,
+        }
+
+        try:
+            from agents.researcher    import ResearcherAgent
+            from agents.mathematician import MathematicianAgent
+            from agents.architect     import ArchitectAgent
+            from agents.coder         import CoderAgent
+            from agents.trainer       import TrainerAgent
+            from agents.evaluator     import EvaluatorAgent
+            from agents.validator     import ValidatorAgent
+            from agents.critic        import CriticAgent
+
+            pipeline = [
+                ResearcherAgent(**agent_kwargs),
+                MathematicianAgent(**agent_kwargs),
+                ArchitectAgent(**agent_kwargs),
+                CoderAgent(**agent_kwargs),
+                TrainerAgent(**agent_kwargs),
+                EvaluatorAgent(**agent_kwargs),
+                ValidatorAgent(**agent_kwargs),
+                CriticAgent(**agent_kwargs),
+            ]
+
+            ctx = dict(context)
+            for agent in pipeline:
+                # Check for cancellation signal via Redis key
+                try:
+                    import redis as _redis
+                    r = _redis.from_url(REDIS_URL, decode_responses=True)
+                    cancelled = r.get(f"research:cancel:{research_id}")
+                    r.close()
+                    if cancelled:
+                        logger.info("Research session %s cancelled", research_id)
+                        return
+                except Exception:
+                    pass
+
+                ctx = await agent.run(ctx)
+
+            # Save results
+            scored     = ctx.get("scored_candidates", [])
+            gen_code   = ctx.get("generated_code", [])
+            to_recurse = ctx.get("candidates_to_recurse", [])
+
+            await _save_candidates(research_id, scored, gen_code)
+            await _update_mongo_session(research_id, {
+                "status"           : "running",
+                "generation"       : generation,
+                "top_candidates"   : [s["architecture_name"] for s in scored[:3]],
+                "updated_at"       : _now_iso(),
+            })
+
+            # Decide whether to recurse
+            next_gen = generation + 1
+            if to_recurse and next_gen < max_gen:
+                logger.info("Recursing into generation %d with %d candidates", next_gen, len(to_recurse))
+                _publish(research_id, {
+                    "event_type"          : "generation_complete",
+                    "research_session_id" : research_id,
+                    "generation"          : generation,
+                    "recurse"             : True,
+                    "timestamp"           : _now_iso(),
+                })
+                next_context = dict(context)
+                next_context.update({
+                    "generation"             : next_gen,
+                    "depth"                  : context.get("depth", 0) + 1,
+                    "previous_winner_arch"   : ctx.get("previous_winner_arch"),
+                    "candidates_to_recurse"  : to_recurse,
+                })
+                run_research_generation.delay(
+                    research_session_id = research_id,
+                    context             = next_context,
+                )
+            else:
+                # Session complete
+                top = scored[0] if scored else {}
+                await _update_mongo_session(research_id, {
+                    "status"         : "completed",
+                    "completed_at"   : _now_iso(),
+                    "best_candidate" : top.get("architecture_name"),
+                    "best_score"     : top.get("composite_score", 0),
+                })
+                _publish(research_id, {
+                    "event_type"          : "session_complete",
+                    "research_session_id" : research_id,
+                    "generation"          : generation,
+                    "best_candidate"      : top.get("architecture_name"),
+                    "best_score"          : top.get("composite_score", 0),
+                    "timestamp"           : _now_iso(),
+                })
+
+        except Exception as e:
+            logger.exception("Research session %s failed: %s", research_id, e)
+            await _update_mongo_session(research_id, {
+                "status"    : "error",
+                "error"     : str(e),
+                "failed_at" : _now_iso(),
+            })
+            _publish(research_id, {
+                "event_type"          : "session_error",
+                "research_session_id" : research_id,
+                "error"               : str(e),
+                "timestamp"           : _now_iso(),
+            })
+
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(_run())
+    finally:
+        loop.close()
+
+
+# ── Periodic idle-check ───────────────────────────────────────────────────────
+
+@research_celery_app.task(name="tasks_research.check_idle_and_spawn")
+def check_idle_and_spawn():
+    """
+    Periodic beat task: find research sessions stuck in 'queued' or 'running'
+    state for more than 10 minutes and attempt to requeue them.
+    """
+    import asyncio
+
+    async def _run():
+        try:
+            from database_mongo import get_database
+            db = get_database()
+
+            cutoff = _now_iso()   # use ISO; MongoDB stores as string here
+            stale  = await db["research_sessions"].find({
+                "status": {"$in": ["queued", "running"]},
+            }).to_list(length=20)
+
+            for doc in stale:
+                research_id = doc["_id"]
+                updated_at  = doc.get("updated_at", doc.get("created_at", ""))
+                # Simple staleness: if we can find no recent Redis activity, requeue
+                try:
+                    import redis as _redis
+                    r = _redis.from_url(REDIS_URL, decode_responses=True)
+                    heartbeat = r.get(f"research:heartbeat:{research_id}")
+                    r.close()
+                    if heartbeat:
+                        continue   # still alive
+                except Exception:
+                    pass
+
+                # Requeue if still queued
+                if doc.get("status") == "queued":
+                    request = doc.get("request", {})
+                    if request:
+                        logger.info("Re-queuing stale research session %s", research_id)
+                        run_research_generation.delay(
+                            research_session_id = research_id,
+                            context             = {
+                                "session_id"                : doc.get("session_id", ""),
+                                "research_session_id"       : research_id,
+                                "domain"                    : request.get("domain", "vision"),
+                                "category"                  : request.get("category", "vision"),
+                                "task_description"          : request.get("task_description", ""),
+                                "population_size"           : request.get("population_size", 3),
+                                "max_generations"           : request.get("max_generations", 3),
+                                "enable_real_data_validation": request.get("enable_real_data_validation", False),
+                                "generation"                : 0,
+                                "depth"                     : 0,
+                            },
+                        )
+
+        except Exception as e:
+            logger.warning("check_idle_and_spawn failed: %s", e)
+
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(_run())
+    finally:
+        loop.close()

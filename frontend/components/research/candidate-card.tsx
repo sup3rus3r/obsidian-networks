@@ -1,0 +1,207 @@
+'use client'
+
+import { useState } from 'react'
+import { type ResearchCandidate, compileResearchCandidate } from '@/app/api/platform'
+import { Badge } from '@/components/ui/badge'
+import {
+  Download, ChevronDown, ChevronUp,
+  Zap, Brain, Sparkles, Shield, BarChart3,
+  Cpu, Timer, Layers, Loader2,
+} from 'lucide-react'
+
+const ACTION_COLORS: Record<string, string> = {
+  recurse : 'text-[#39FF14] border-[#39FF14]/40 bg-[#39FF14]/10',
+  archive : 'text-blue-400 border-blue-400/40 bg-blue-400/10',
+  discard : 'text-zinc-600 border-zinc-700 bg-zinc-800/40',
+}
+
+const ACTION_LABELS: Record<string, string> = {
+  recurse : 'Recurse',
+  archive : 'Archived',
+  discard : 'Discarded',
+}
+
+interface ScoreBarProps {
+  label : string
+  value : number
+  Icon  : React.ElementType
+  color : string
+}
+
+function ScoreBar({ label, value, Icon, color }: ScoreBarProps) {
+  const pct = Math.round(value * 100)
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-[10px]">
+        <div className="flex items-center gap-1 text-zinc-500">
+          <Icon className={`h-3 w-3 ${color}`} />
+          {label}
+        </div>
+        <span className={`font-mono font-medium ${color}`}>{pct}%</span>
+      </div>
+      <div className="h-1 w-full rounded-full bg-zinc-800">
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${color.replace('text-', 'bg-')}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
+interface CandidateCardProps {
+  candidate   : ResearchCandidate
+  researchId  : string
+  rank        : number
+}
+
+export function CandidateCard({ candidate, researchId, rank }: CandidateCardProps) {
+  const [expanded,    setExpanded]    = useState(rank === 0)  // top candidate open by default
+  const [downloading, setDownloading] = useState(false)
+
+  const actionClass = ACTION_COLORS[candidate.next_action] ?? ACTION_COLORS.discard
+  const score       = Math.round(candidate.composite_score * 100)
+
+  // Ring color based on score
+  const ringColor = score >= 75 ? 'border-[#39FF14]/50' :
+                    score >= 50 ? 'border-blue-500/40'   :
+                                  'border-zinc-700'
+
+  const handleDownload = async () => {
+    setDownloading(true)
+    const result = await compileResearchCandidate(researchId, candidate.architecture_name)
+    setDownloading(false)
+    if (!result) return
+
+    const blob = new Blob([result.code], { type: 'text/plain' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.download = result.filename
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <div className={`rounded-lg border bg-zinc-900/60 transition-all duration-200 ${ringColor}`}>
+
+      {/* Header */}
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="cursor-pointer flex w-full items-center gap-3 px-4 py-3 text-left"
+      >
+        {/* Rank */}
+        <span className={`shrink-0 flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold
+          ${rank === 0 ? 'bg-[#39FF14]/20 text-[#39FF14]' : rank === 1 ? 'bg-blue-500/20 text-blue-400' : 'bg-zinc-800 text-zinc-500'}
+        `}>
+          {rank + 1}
+        </span>
+
+        {/* Name */}
+        <div className="flex-1 min-w-0">
+          <p className="truncate text-sm font-semibold text-zinc-200">
+            {candidate.architecture_name}
+          </p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className={`rounded border px-1.5 py-0 text-[10px] font-medium ${actionClass}`}>
+              {ACTION_LABELS[candidate.next_action]}
+            </span>
+            {candidate.param_count > 0 && (
+              <span className="text-[10px] text-zinc-600 font-mono">
+                {(candidate.param_count / 1e6).toFixed(1)}M params
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Composite score ring */}
+        <div className="shrink-0 flex flex-col items-center gap-0.5">
+          <span className={`font-mono text-lg font-bold leading-none ${score >= 75 ? 'text-[#39FF14]' : score >= 50 ? 'text-blue-400' : 'text-zinc-500'}`}>
+            {score}
+          </span>
+          <span className="text-[9px] text-zinc-600 uppercase tracking-wider">score</span>
+        </div>
+
+        {expanded ? <ChevronUp className="h-4 w-4 shrink-0 text-zinc-600" /> : <ChevronDown className="h-4 w-4 shrink-0 text-zinc-600" />}
+      </button>
+
+      {/* Expanded detail */}
+      {expanded && (
+        <div className="border-t border-zinc-800 px-4 py-3 space-y-4">
+
+          {/* Score breakdown */}
+          <div className="space-y-2">
+            <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-600">Score Breakdown</p>
+            <ScoreBar label="Novelty"         value={candidate.novelty_score}         Icon={Sparkles}  color="text-purple-400" />
+            <ScoreBar label="Efficiency"      value={candidate.efficiency_score}      Icon={Zap}       color="text-amber-400" />
+            <ScoreBar label="Soundness"       value={candidate.soundness_score}       Icon={Shield}    color="text-blue-400" />
+            <ScoreBar label="Generalization"  value={candidate.generalization_score}  Icon={Brain}     color="text-[#39FF14]" />
+          </div>
+
+          {/* Hardware metrics */}
+          {(candidate.memory_mb > 0 || candidate.inference_time_ms > 0) && (
+            <div className="grid grid-cols-3 gap-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-1 text-[10px] text-zinc-600">
+                  <Cpu className="h-3 w-3" /> Memory
+                </div>
+                <p className="font-mono text-xs font-medium text-zinc-300">
+                  {candidate.memory_mb > 0 ? `${candidate.memory_mb.toFixed(0)} MB` : '—'}
+                </p>
+              </div>
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-1 text-[10px] text-zinc-600">
+                  <Timer className="h-3 w-3" /> Inference
+                </div>
+                <p className="font-mono text-xs font-medium text-zinc-300">
+                  {candidate.inference_time_ms < 9000 ? `${candidate.inference_time_ms.toFixed(0)} ms` : '—'}
+                </p>
+              </div>
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-1 text-[10px] text-zinc-600">
+                  <Layers className="h-3 w-3" /> Params
+                </div>
+                <p className="font-mono text-xs font-medium text-zinc-300">
+                  {candidate.param_count > 0 ? `${(candidate.param_count / 1e6).toFixed(2)}M` : '—'}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Synthetic metrics */}
+          {Object.keys(candidate.synthetic_metrics).length > 0 && (
+            <div className="space-y-1">
+              <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-600">Training Metrics</p>
+              <div className="flex flex-wrap gap-3">
+                {Object.entries(candidate.synthetic_metrics)
+                  .filter(([k]) => !['error'].includes(k))
+                  .map(([k, v]) => (
+                    <div key={k} className="space-y-0">
+                      <p className="text-[10px] text-zinc-600">{k}</p>
+                      <p className="font-mono text-xs text-zinc-300">
+                        {typeof v === 'number' ? v.toFixed(4) : String(v)}
+                      </p>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
+          {/* Download button */}
+          {candidate.next_action !== 'discard' && (
+            <button
+              onClick={handleDownload}
+              disabled={downloading}
+              className="cursor-pointer flex w-full items-center justify-center gap-2 rounded-lg border border-[#39FF14]/30 bg-[#39FF14]/5 px-3 py-2 text-xs font-medium text-[#39FF14] transition-colors hover:border-[#39FF14]/60 hover:bg-[#39FF14]/10 disabled:opacity-50"
+            >
+              {downloading
+                ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Compiling…</>
+                : <><Download className="h-3.5 w-3.5" /> Download Training Script</>
+              }
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}

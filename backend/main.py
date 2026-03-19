@@ -12,6 +12,7 @@ load_dotenv()
 import asyncio
 from contextlib import asynccontextmanager
 from routers.platform import router as platform_router
+from routers.research import router as research_router
 from sessions import cleanup_expired_sessions
 from datetime import timedelta, datetime, timezone
 from fastapi import FastAPI, Depends, HTTPException, status, Request
@@ -69,6 +70,9 @@ app = FastAPI(lifespan=lifespan)
 
 # ── Platform (open source v1) ─────────────────────────────────────────────────
 app.include_router(platform_router)
+
+# ── Research Mode ─────────────────────────────────────────────────────────────
+app.include_router(research_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)

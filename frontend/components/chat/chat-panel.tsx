@@ -223,8 +223,16 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const [isUploading,     setIsUploading]     = useState(false)
   const [uploadError,     setUploadError]     = useState<string | null>(null)
 
-  // Local dataset cards inserted between messages
-  const [localCards, setLocalCards] = useState<LocalCard[]>([])
+  // Local dataset cards inserted between messages — restored from sessionStorage on mount
+  const [localCards, setLocalCards] = useState<LocalCard[]>(() => {
+    if (typeof window === 'undefined' || !sessionId) return []
+    try {
+      const raw = sessionStorage.getItem(`ob_cards_${sessionId}`)
+      return raw ? (JSON.parse(raw) as LocalCard[]) : []
+    } catch {
+      return []
+    }
+  })
 
   // AI SDK v6 — transport replaces the old `api` string shorthand
   const transport = useMemo(
@@ -233,7 +241,39 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     [sessionId]
   )
 
+  // Restore messages from sessionStorage so a browser refresh doesn't wipe the chat
+  const storageKey = sessionId ? `ob_chat_${sessionId}` : null
+  const cardsKey   = sessionId ? `ob_cards_${sessionId}` : null
+
   const { messages, sendMessage, stop, status, setMessages } = useChat({ transport })
+
+  // Rehydrate messages from sessionStorage on mount (restores chat after browser refresh)
+  const hydratedRef = useRef(false)
+  useEffect(() => {
+    if (hydratedRef.current || !storageKey) return
+    hydratedRef.current = true
+    try {
+      const raw = sessionStorage.getItem(storageKey)
+      if (raw) setMessages(JSON.parse(raw) as UIMessage[])
+    } catch { /* corrupted storage — start fresh */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storageKey])
+
+  // Persist messages whenever they change
+  useEffect(() => {
+    if (!storageKey || !hydratedRef.current) return
+    try {
+      sessionStorage.setItem(storageKey, JSON.stringify(messages))
+    } catch { /* quota exceeded — best effort */ }
+  }, [messages, storageKey])
+
+  // Persist local dataset cards
+  useEffect(() => {
+    if (!cardsKey) return
+    try {
+      sessionStorage.setItem(cardsKey, JSON.stringify(localCards))
+    } catch { /* quota exceeded — best effort */ }
+  }, [localCards, cardsKey])
 
   useImperativeHandle(ref, () => ({
     sendError: (error: string) => {
@@ -249,7 +289,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     stop()
     setMessages([])
     setLocalCards([])
-  }, [stop, setMessages])
+    if (storageKey) sessionStorage.removeItem(storageKey)
+    if (cardsKey)   sessionStorage.removeItem(cardsKey)
+  }, [stop, setMessages, storageKey, cardsKey])
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current

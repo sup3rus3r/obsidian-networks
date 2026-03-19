@@ -1,6 +1,7 @@
 'use client'
 
 import Image from 'next/image'
+import Link from 'next/link'
 import { useState, useCallback, useRef } from 'react'
 import { usePlatformSession } from '@/hooks/use-platform-session'
 import { useEnvironment } from '@/hooks/use-environment'
@@ -13,7 +14,7 @@ import {
 } from '@/components/ui/resizable'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
-import { Clock, RotateCcw } from 'lucide-react'
+import { Clock, RotateCcw, FlaskConical } from 'lucide-react'
 
 // ── Session banner ────────────────────────────────────────────────────────────
 
@@ -69,6 +70,15 @@ function Header({
             {environment.label.split(' ')[0]}
           </Badge>
         </div>
+
+        <Link
+          href="/research"
+          className="flex items-center gap-1 rounded-md border border-violet-500/30 px-2 py-1 text-[11px] text-violet-400/70 transition-colors hover:border-violet-400/60 hover:text-violet-400"
+          title="Autonomous Research Mode — discover novel architectures with 8 AI agents"
+        >
+          <FlaskConical className="h-3 w-3" />
+          Research Mode
+        </Link>
 
         <button
           onClick={onNewSession}

@@ -4,29 +4,21 @@
 
 ---
 
-**The world's most powerful open-source AI platform for building production-ready machine learning models — no expertise required.**
+**Every important problem in the world is, at its core, a question someone does not yet have the tools to answer.**
 
-**Obsidian Networks eliminates everything that slows you down.** No more hunting through research papers. No more wrestling with boilerplate. No more debugging cryptic TensorFlow errors at 2am. No more paying consultants to do something a machine can do better, faster, and with full citations.
+A doctor staring at a patient's file, wondering who will deteriorate overnight. A factory floor manager who knows something is wrong but cannot say what or when. A researcher with years of data and no way to hear what it is saying. A founder watching the numbers move and not knowing why. A small team trying to do something that used to require ten specialists and a budget they will never have.
 
-**Describe what you want. Walk away with a trained model.**
+The gap between the question and the answer has never been a lack of intelligence. It has always been a lack of access — to the right expertise, the right tools, and the time to use them.
 
-**Healthcare teams** use it to predict patient outcomes from clinical records. **Financial institutions** use it to detect fraud, forecast risk, and build trading signals. **Retailers** use it to model churn, optimise pricing, and forecast demand. **Manufacturers** use it to predict equipment failure before it happens. **Researchers** use it to prototype and validate ideas in minutes instead of weeks. **Startups** use it to build ML capabilities without hiring a data science team. **Computer vision teams** use it to build CNNs, object detectors, and full video understanding models from nothing but a description of what they need. **NLP and AI research teams** use it to build Transformers, Vision Transformers, and custom attention architectures grounded in the latest literature. If your industry runs on data — and every industry does — **Obsidian Networks turns that data into intelligence.**
+Obsidian Networks is our answer to that gap.
 
-It takes away **weeks of research**, replacing them with an agent that reads the actual papers. It takes away **days of boilerplate**, replacing them with a cited, reviewed, production-ready training script. It takes away **hours of debugging**, replacing them with a self-healing compile loop that fixes its own errors. It takes away **the expertise gatekeeping** that keeps machine learning out of reach for most teams, replacing it with a platform that interviews you, understands your problem, and builds the right solution. It takes away **cloud lock-in**, because the entire stack runs on your infrastructure and your keys.
+It reads the scientific literature so you don't have to. It designs the right approach for the problem you actually have. It writes the code, runs it, fixes what breaks, and hands you something that works — grounded in research, built for your data, ready to use. Not a starting point. Not a suggestion. A solution.
 
-**This is not a code assistant. This is a research engineer, architect, and ML developer — working in parallel, grounded in literature, and available to anyone.**
+It belongs to everyone. It runs on your hardware. Your data stays with you. There are no subscriptions, no gatekeepers, no one you need to ask.
 
----
+And with the latest release, it goes beyond what you ask of it. Autonomous Research Mode sets eight specialised agents to work in parallel — reading, reasoning, building, and scoring across generations of candidates — not just solving the problem in front of it, but searching the space of what is possible for things nobody has thought to look for yet. It runs while you sleep. It comes back with answers.
 
-## What is Obsidian Networks?
-
-**Obsidian Networks** is an AI-powered platform that generates **complete machine learning pipelines** from a simple description of your problem.
-
-Instead of manually researching architectures, writing training code, debugging errors, and configuring environments, the platform automates the entire workflow.
-
-Upload your dataset → describe your goal → receive a fully functional training script and trained model.
-
-The generated code follows modern TensorFlow/Keras practices and is designed to be **production-ready, transparent, and editable**.
+**We built this because the tools to understand the world should belong to everyone who has the courage to ask a question. In pursuit of AGI.**
 
 ---
 
@@ -37,7 +29,6 @@ The generated code follows modern TensorFlow/Keras practices and is designed to 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=next.js&logoColor=white)](https://nextjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.128+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![TensorFlow](https://img.shields.io/badge/TensorFlow-2.16+-FF6F00?logo=tensorflow&logoColor=white)](https://www.tensorflow.org/)
 [![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)](https://redis.io/)
 
@@ -45,581 +36,191 @@ The generated code follows modern TensorFlow/Keras practices and is designed to 
 
 **If you find this project useful, please consider giving it a star!** It helps others discover the project and motivates continued development.
 
-[**Give it a Star**](https://github.com/sup3rus3r/obsidian-networks) &#11088;
+[**Give it a Star ⭐**](https://github.com/sup3rus3r/obsidian-networks)
 
 </div>
 
 ---
-<img src="docs/images/screen.png" width="100%" alt="Obsidian Networks UI" />
 
----
+## What is Obsidian Networks?
 
-<img src="docs/images/demo_one.png" width="100%" alt="Obsidian Networks demo" />
+Obsidian Networks is an open-source research and development platform that takes a problem — described in plain language — and works through it the way a skilled team would: reading the literature, forming a plan, building a solution, testing it, and handing you something ready to use.
 
----
+It works across the full range of what data can tell you. Predicting outcomes, detecting anomalies, forecasting the future, understanding behaviour, classifying the unknown, generating new things from existing ones. If the answer exists somewhere in your data, the platform will find a way to surface it.
 
-<img src="docs/images/demo_two.png" width="100%" alt="Obsidian Networks demo" />
-
-
-## TL;DR — Model Recommendations
-
-Based on initial testing across providers, model quality for this use case ranks as follows:
-
-**Claude (Anthropic) > GPT-4o (OpenAI) > Large local models via LM Studio**
-
-- **Claude** (Sonnet / Opus) produces the most thorough research — it reliably calls all research tools before writing code, follows multi-step instructions precisely, and generates clean, runnable training scripts with minimal patching needed.
-- **GPT-4o** performs well and follows tool-use instructions consistently, though it does less unprompted research than Claude.
-- **LM Studio** (local models) works best with larger models (13B+). Smaller models tend to skip research tool calls and occasionally produce scripts with minor syntax issues. The platform automatically patches the most common errors, but output quality is noticeably lower than cloud providers.
-
-If you are self-hosting for privacy or cost reasons, use the largest model your hardware supports. For best results, use Claude.
-
-### Self-Healing Scripts
-
-When a generated training script fails to compile, the platform automatically feeds the error message back to the AI model so it can diagnose and fix the problem — then regenerates the script and retries, without any manual intervention. This loop runs silently in the background; you will see the chat update with a fix and the compile button become available again once the corrected script is ready.
-
----
-
-## Table of Contents
-
-- [Why Obsidian Networks?](#why-obsidian-networks)
-- [How It Works](#how-it-works)
-- [Features](#features)
-  - [Supervised Learning](#supervised-learning)
-  - [Time Series Forecasting](#time-series-forecasting)
-  - [Reinforcement Learning](#reinforcement-learning)
-  - [Training Visualisation](#training-visualisation)
-  - [Plot Gallery](#plot-gallery)
-  - [Multi-Provider LLM](#multi-provider-llm)
-  - [Notebook Export](#notebook-export)
-  - [Session Privacy](#session-privacy)
-  - [Self-Hosted](#self-hosted)
-- [Architecture](#architecture)
-- [Quick Start](#quick-start)
-  - [Prerequisites](#prerequisites)
-  - [Docker](#docker-recommended)
-  - [Local Development](#local-development)
-  - [Environment Variables](#environment-variables)
-- [Sample Datasets](#sample-datasets)
-- [Tech Stack](#tech-stack)
-- [Project Structure](#project-structure)
-- [Security Model](#security-model)
-- [Recent Updates](#recent-updates)
-- [Roadmap](#roadmap)
-- [Contributing](#contributing)
-- [License](#license)
-
----
-
-## Why Obsidian Networks?
-
-Most ML platforms assume you already know how to build models. **Obsidian Networks** inverts that assumption.
-
-- **No ML expertise required** — Describe your goal in plain English. The AI selects the architecture, verifies the API, writes the code, and trains the model.
-- **Research-backed output** — Before generating a single line of code, the agent searches arXiv, reads abstracts to select relevant papers, and downloads the full PDFs directly into a local FAISS vector store. Keras/TF API docs are pulled from Context7 and indexed alongside the papers. Every architectural decision in the plan traces back to a specific retrieved chunk with a source URL.
-- **End-to-end in one session** — From raw CSV to a trained `.keras` file without switching tools, writing boilerplate, or managing environments.
-- **Time series support** — Upload hourly or daily data and receive a complete LSTM or Temporal Fusion Transformer script with correct temporal windowing and no data leakage.
-- **Reinforcement learning support** — Describe an RL problem — trading agent, game controller, robot policy — and receive a complete Gymnasium environment, actor/critic networks, and a training loop.
-- **Fully local option** — Point the platform at a local [LM Studio](https://lmstudio.ai/) server. Your data, models, and prompts never touch a cloud API.
-- **Self-hosted & open-source** — One `docker compose up --build`. Your infrastructure, your data, your keys.
+Beyond single problems, Autonomous Research Mode lets it operate independently — exploring entire domains overnight, running hundreds of experiments across generations, and surfacing discoveries that no one asked for but everyone needed. It is a research partner that never stops working.
 
 ---
 
 ## How It Works
 
-```
-Upload dataset  →  Describe your goal  →  Research  →  Plan  →  Build  →  Download
-```
+You describe what you need. Everything else happens automatically.
 
-**1. Research**
-The AI agent searches arXiv for relevant papers, reads the abstracts to select the most relevant ones, then downloads the **full PDFs directly** into a per-session FAISS vector store. TensorFlow/Keras API docs are fetched from [Context7](https://context7.com) — returning real code snippets and current API signatures from keras.io — and also indexed into the vector store. No content is truncated or discarded; everything is chunked and embedded for retrieval during planning.
+**Research** — The platform goes to the source. It searches academic literature, reads papers, selects the ones that matter for your specific problem, and builds a private knowledge base from them — just for this session. It does not guess. It does not improvise from memory. It reads.
 
-**2. Plan**
-The agent queries the vector store with targeted questions (architecture type, layer sizes, activations, optimizer, regularisation, evaluation metrics) and synthesises findings into a **structured Plan Document** — covering problem framing, feature engineering, architecture with mathematical justification, hyperparameters with citations, and training strategy. Every decision cites a specific retrieved chunk with its source URL. The plan is presented to you for review before any code is written.
+**Plan** — From that knowledge base, it forms a plan. Every decision — what approach to take, how to structure it, what to measure — is drawn from what it found in the literature and presented to you with citations. You read it. You approve it. Nothing is built until you do.
 
-**3. Build**
-Only after you approve the plan does the agent generate code. Every architecture decision in the script is traceable back to the approved plan. The script is validated and saved as a downloadable Jupyter notebook.
+**Build** — Once you give the go-ahead, it builds exactly what was planned. The output is clean, readable, and yours to keep — a complete working script wrapped in a Jupyter notebook you can open anywhere.
 
-**4. Compile**
-Click **Compile & Train**. The backend validates the script at the AST level and runs it in an isolated subprocess inside a hardened Docker sandbox. Progress, per-epoch metrics, and loss/accuracy charts stream back to the UI in real time via SSE.
+**Train** — Click one button. It runs on your machine, in your environment. You watch it work in real time — metrics, charts, progress — as it trains. When it finishes, you download the result.
 
-**5. Download**
-Grab your trained `.keras` model file(s), the auto-generated Jupyter notebook, and any training plots from the Downloads panel — ready to deploy or continue iterating anywhere.
+That is the whole process. No configuration. No expertise required. No waiting on someone else.
 
 ---
 
-## Features
+## Autonomous Research Mode
 
-### Supervised Learning
+Beyond building a single model, Obsidian Networks includes an Autonomous Research Mode — a continuously running architecture discovery engine that explores an entire design space on your behalf.
 
-Automatic task detection for binary classification, multiclass classification, and regression. Preprocessing is handled entirely through Keras layers — `Normalization`, `StringLookup`, `TextVectorization` — so the trained model is fully portable with no sklearn pipelines or pandas transforms at inference time. EarlyStopping and ModelCheckpoint are included in every generated script.
+You set a goal and a modality (vision, text, audio, time series, graph, multimodal, tabular, recommendation, or generative). Eight specialised AI agents then run in a coordinated loop:
 
----
+**Researcher → Mathematician → Architect → Coder → Trainer → Evaluator → Validator → Critic**
 
-### Time Series Forecasting
+Each generation produces a population of candidate architectures. The Critic scores every candidate on novelty, efficiency, soundness, and generalisation — then recurses on the top performers. The entire process runs autonomously. You watch a live feed of agent activity and, when it finishes, browse a ranked leaderboard of discovered architectures — each one downloadable as a production training script.
 
-Upload any time-indexed CSV and describe a forecasting goal. The platform detects datetime columns, infers the sampling frequency, and selects an appropriate architecture.
-
-| Architecture | When used | Output |
-|---|---|---|
-| **LSTM** | General sequence modelling, univariate or multivariate | `model.keras` |
-| **Stacked LSTM** | Longer sequences, more complex patterns | `model.keras` |
-| **Temporal Fusion Transformer** | Multi-horizon forecasting with interpretability | `model.keras` |
-
-Key guarantees in every generated time series script:
-- Temporal train/val/test split (no shuffling — prevents data leakage)
-- `keras.utils.timeseries_dataset_from_array` for correct sliding-window batching
-- EarlyStopping with patience=20 on validation loss
-- Up to 200 epochs with checkpointing
+This is architecture search that used to require a dedicated research team. Now it runs overnight on your own hardware.
 
 ---
 
-### Reinforcement Learning
+## What You Can Solve
 
-Describe an RL problem in plain English and the platform generates a complete Gymnasium environment, the appropriate network architecture, and a trajectory-based training loop using `env.step()` / `env.reset()` — never `model.fit()`. No file upload required.
+**Prediction from data** — If you have a spreadsheet and a question — who will churn, what will sell, which patient is at risk, when will the part fail — upload it, describe what you want to know, and get a working model. No ML background needed.
 
-| Algorithm | When to use | Output files |
-|-----------|-------------|--------------|
-| **PPO** | Continuous or complex action spaces | `actor.keras` + `critic.keras` |
-| **DQN** | Simple discrete action spaces | `qnetwork.keras` |
-| **SAC** | Off-policy continuous control | `actor.keras` + `critic_1.keras` + `critic_2.keras` |
+**Forecasting over time** — If your data has a time dimension and you need to see what comes next, the platform handles the complexity of temporal modelling correctly. No data leakage. No manual windowing. Just describe the goal.
 
-The AI always searches arXiv for RL-specific papers before selecting an algorithm, and the reward function rationale is documented inline in every generated script.
+**Decision-making and control** — Describe a problem where something needs to learn to act — a trading strategy, a controller, an agent that optimises a process — and receive a complete environment and training loop built around it.
 
----
+**Vision and video** — Describe what you need to see or detect. The platform asks the right questions, understands your constraints, and builds the architecture to match. No dataset upload required — just a clear description of the problem.
 
-### Training Visualisation
+**Language and understanding** — From text classification to attention-based architectures for complex language tasks, built on current research rather than dated templates.
 
-Live loss/accuracy charts appear inline during compilation, streamed epoch-by-epoch via SSE — no page refresh needed.
-
-- Dual-axis layout: loss on the left y-axis, accuracy percentage on the right
-- Click the expand icon to open a full-size chart with tooltip, legend, and stat pills
-- Epochs badge in the Downloads panel shows how many epochs ran and whether EarlyStopping fired (e.g. `Trained for 47 epochs · early stopped / 200 max`)
-- Built with Recharts + shadcn-style `ChartContainer`
+**Generation** — If the goal is to create rather than predict — synthetic data, novel images, learned representations — the platform builds the right generative architecture for it.
 
 ---
 
-### Plot Gallery
+## It Fixes Its Own Mistakes
 
-Generated scripts automatically save matplotlib figures to the session output directory. After compilation completes, any PNG/JPG/SVG files appear as a thumbnail gallery in the Downloads panel.
-
-- Click any thumbnail to open a full-size lightbox dialog
-- The panel shows a `Saving plots…` spinner after compilation while images are written to disk
-- Useful for visualising training history, confusion matrices, feature importance, prediction error, and any other plots your script produces
+Code fails sometimes. That is not a problem here. When something does not compile or run correctly, the platform diagnoses what went wrong, rewrites what it needs to, and tries again — on its own, without you having to do anything. You will see it happen in the chat. By the time you look back, it has usually already fixed it.
 
 ---
 
-### Multi-Provider LLM
+## Choosing an AI Provider
 
-Switch between providers without changing your workflow. Each provider uses the most efficient context management strategy available.
+The platform works with Anthropic (Claude), OpenAI (GPT-4o), or any local model via LM Studio. From testing, Claude gives the best results — it reads more thoroughly, reasons more carefully, and produces cleaner output with less fixing needed. GPT-4o is a solid second. Local models work well at larger sizes; smaller ones occasionally skip research steps or need a retry.
 
-| Provider | Type | Notes |
-|----------|------|-------|
-| **Anthropic** | Cloud | Claude Opus 4.6, Sonnet 4.6, Haiku 4.5 |
-| **OpenAI** | Cloud | GPT-4o, o3, any available model |
-| **LM Studio** | Local | Any OpenAI-compatible local model |
-
-**Context efficiency per provider:**
-
-- **Anthropic** — Prompt caching (`cache_control: ephemeral`) is applied to the system prompt on every request, so the ~2k-token system prompt is read from cache rather than re-processed each turn. Server-side `contextManagement` automatically clears old tool-use results (arXiv abstracts, TF doc fetches) when the context approaches 60k input tokens, keeping only the 3 most recent tool turns. This dramatically reduces cost and latency on long sessions.
-- **OpenAI / LM Studio** — `pruneMessages` strips tool call results older than the last 5 message turns before sending, keeping the context window lean without losing conversation continuity.
-
----
-
-### Notebook Export
-
-Every training script is saved as a `.ipynb` Jupyter notebook. Download it and continue iterating locally, on Google Colab, on Kaggle, or anywhere a Jupyter kernel runs.
-
-The notebook includes a **per-platform environment setup cell** at the top — no more hunting for the right install command:
-
-| Platform | What's included |
-|---|---|
-| **CPU (Linux / WSL2)** | venv setup, `tensorflow-cpu` install |
-| **NVIDIA GPU (Linux / WSL2)** | `tensorflow[and-cuda]` install, GPU verification snippet |
-| **Google Colab** | Pre-installed TF note, extra deps only |
-
-When you request changes to a model — new architecture, different optimizer, added dropout — the AI updates the full script and calls `create_notebook` again, overwriting the previous version so you always have the latest.
-
----
-
-### Session Privacy
-
-Sessions are anonymous and ephemeral. Uploaded datasets and generated files are stored in an isolated per-session directory on the host and purged automatically after a configurable TTL (default: 4 hours). Nothing is persisted in a database.
-
----
-
-### Self-Hosted
-
-One command starts the full stack: Next.js frontend, FastAPI backend, Celery worker, and Redis.
-
-```bash
-docker compose up --build
-```
-
-No external services required beyond your LLM API key.
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────┐      ┌─────────────────────────────────┐
-│           Frontend              │      │            Backend              │
-│     Next.js 16 + React 19       │─────>│      FastAPI + Python 3.11      │
-│     Port 3000                   │ /api │      Port 8000                  │
-│                                 │proxy │                                 │
-│  ┌──────────┐  ┌─────────────┐  │      │  ┌───────────┐  ┌───────────┐  │
-│  │ AI SDK 6 │  │  shadcn/ui  │  │      │  │ Sessions  │  │ Dataset   │  │
-│  │ useChat  │  │  Tailwind 4 │  │      │  │ + TTL     │  │ Analysis  │  │
-│  └──────────┘  └─────────────┘  │      │  └───────────┘  └───────────┘  │
-│  ┌──────────┐  ┌─────────────┐  │      │  ┌───────────┐  ┌───────────┐  │
-│  │  Shiki   │  │  Resizable  │  │      │  │ Notebook  │  │  Compile  │  │
-│  │  (code)  │  │   Panels    │  │      │  │  Export   │  │ Endpoint  │  │
-│  └──────────┘  └─────────────┘  │      │  └───────────┘  └───────────┘  │
-└─────────────────────────────────┘      └──────────────┬──────────────────┘
-                                                        │
-                                         ┌──────────────▼──────────────────┐
-                                         │    Redis 7 (broker + results)   │
-                                         └──────────────┬──────────────────┘
-                                                        │
-                                         ┌──────────────▼──────────────────┐
-                                         │    Celery Worker (--pool=solo)  │
-                                         │  AST validation → subprocess    │
-                                         │  TensorFlow / Keras / Gymnasium │
-                                         │  Outputs: *.keras + plots       │
-                                         │  Sandbox: seccomp + cap_drop    │
-                                         └─────────────────────────────────┘
-```
-
-**How it works:**
-
-1. The Next.js frontend proxies all `/api/platform/*` requests to the FastAPI backend via `next.config.ts` rewrites. Large file uploads bypass the proxy entirely, going directly to the backend at `NEXT_PUBLIC_UPLOAD_URL` to avoid buffering limits.
-2. The AI chat route (`app/api/chat/route.ts`) operates in three strict phases gated by a backend state machine:
-   - **Research phase**: `search_arxiv` returns paper abstracts for the model to evaluate; `ingest_arxiv_paper` downloads the full PDF by arXiv ID directly to the FAISS vector store (no URL guessing, no truncation); `fetch_tensorflow_docs` fetches authoritative Keras/TF code snippets from Context7 (keras.io + tensorflow/docs) and ingests them into the same vector store
-   - **Planning phase**: `query_research` retrieves relevant chunks; `produce_plan` submits a cited markdown plan document for user approval
-   - **Build phase** (unlocked after user approves): `run_code`, `edit_script`, `create_notebook` — code generation grounded in the approved plan
-3. The agent writes the training script via `edit_script(old_str="__REPLACE_ALL__", ...)`, then calls `create_notebook` with only a description. The backend reads the saved script, applies AST/regex patches, validates it, and wraps it in a `.ipynb` notebook.
-4. The Celery worker validates the script at the AST level, runs it in a subprocess with a stripped environment, and writes `.keras` files and plot images to the session's output directory.
-5. Training progress and per-epoch metrics stream back to the frontend via Server-Sent Events; completed model files and plots appear in the Downloads panel.
+If privacy matters most and you want everything running locally with no API costs, use LM Studio with the largest model your hardware supports. If you want the best output with minimal friction, use Claude.
 
 ---
 
 ## Quick Start
 
-### Prerequisites
+### What you need
 
-| Tool | Version | Purpose |
-|------|---------|---------|
-| [Docker](https://docs.docker.com/get-docker/) | Latest | Container runtime |
-| [Docker Compose](https://docs.docker.com/compose/) | v2+ | Multi-service orchestration |
-| [Git](https://git-scm.com/downloads) | Any | Clone the repository |
-| LLM API key | — | Anthropic, OpenAI, or LM Studio |
+| Tool | Purpose |
+|------|---------|
+| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Runs the entire platform in containers |
+| [Git](https://git-scm.com/downloads) | To clone the repository |
+| An LLM API key | Anthropic, OpenAI, or a local LM Studio server |
 
-#### Install Docker
+Docker Desktop includes everything needed on Windows and macOS. On Linux, install Docker Engine and Docker Compose separately.
 
-**Windows / macOS** — Download and install [Docker Desktop](https://www.docker.com/products/docker-desktop/). Docker Compose is included.
-
-**Ubuntu / Debian:**
-```bash
-sudo apt update
-sudo apt install -y ca-certificates curl gnupg
-sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list
-sudo apt update
-sudo apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-sudo usermod -aG docker $USER   # log out and back in after this
-```
-
-**Arch Linux:**
-```bash
-sudo pacman -S docker docker-compose
-sudo systemctl enable --now docker
-sudo usermod -aG docker $USER
-```
-
-Verify the install:
-```bash
-docker --version
-docker compose version
-```
-
-#### Build the base image (one-time setup)
-
-Before running the app for the first time, build the worker base image. This installs all Python ML dependencies (TensorFlow, Keras, etc.) and takes 5–10 minutes once:
-
-```bash
-docker build -f backend/Dockerfile.base -t obsidian-webdev-base:latest backend/
-```
-
-> This only needs to be done once. Re-run it if you change `backend/Dockerfile.base`.
-
-### Docker (Recommended)
+### Step 1 — Clone and configure
 
 ```bash
 git clone https://github.com/sup3rus3r/obsidian-networks.git
 cd obsidian-networks
 
 cp .env.example .env
-# Open .env and set:
-#   AUTH_SECRET — generate one with: openssl rand -base64 32
-#   ANTHROPIC_API_KEY (or OPENAI_API_KEY, or LMSTUDIO_BASE_URL)
+```
 
+Open `.env` in any text editor and fill in two things:
+- `AUTH_SECRET` — a random string used to secure sessions. Generate one by running: `openssl rand -base64 32`
+- Your API key — `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `LMSTUDIO_BASE_URL` depending on which provider you're using
+
+### Step 2 — Start the platform
+
+```bash
 docker compose up --build
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-> **After changing backend code or environment variables**, rebuild only the worker (faster than a full rebuild):
-> ```bash
-> docker compose build worker && docker compose up -d worker
-> ```
+### Local Development (without Docker)
 
-### Local Development
-
-**Requirements:** Linux or WSL2, Python 3.11+, [uv](https://docs.astral.sh/uv/), Node.js 18+, Redis (`sudo apt install redis`)
+If you prefer to run the stack directly on your machine — requires Linux or WSL2, Python 3.11+, Node.js 18+, and Redis installed locally:
 
 ```bash
 git clone https://github.com/sup3rus3r/obsidian-networks.git
 cd obsidian-networks
 
-# Install dependencies
-cd backend && uv sync && cd ..
+cd backend && pip install uv && uv sync && cd ..
 cd frontend && npm install && cd ..
 
-# Configure environment
-cp backend/.env.example backend/.env   # fill in your keys
-cp frontend/.env.example frontend/.env.local   # set AI_PROVIDER and API key
-
-# Start everything with one command
+cp .env.example .env
 npm run dev
 ```
 
-This starts Next.js, FastAPI, the Celery worker, and Redis in a single terminal with colour-coded output. Open [http://localhost:3000](http://localhost:3000).
+This starts everything in one terminal with colour-coded output. Open [http://localhost:3000](http://localhost:3000).
 
-The dev server proxies all `/api/platform/*` requests to `http://localhost:8000`.
+---
 
-### Environment Variables
+## Environment Variables
 
-All configuration lives in `.env` at the repo root (Docker) or `frontend/.env.local` (local dev). See `.env.example` and `backend/.env.example` for full documentation.
+All configuration lives in the `.env` file at the repo root.
 
-#### Root / Frontend (`.env` or `frontend/.env.local`)
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AI_PROVIDER` | `anthropic` | LLM provider: `anthropic`, `openai`, or `lmstudio` |
-| `AI_MODEL` | provider default | Override the model (e.g. `claude-opus-4-6`, `gpt-4o`) |
-| `ANTHROPIC_API_KEY` | — | Required when `AI_PROVIDER=anthropic` |
-| `OPENAI_API_KEY` | — | Required when `AI_PROVIDER=openai` |
-| `LMSTUDIO_BASE_URL` | `http://localhost:1234/v1` | Required when `AI_PROVIDER=lmstudio` |
-
-#### Backend / Root (`.env`)
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AUTH_SECRET` | — | **Required.** Random string for session signing (`openssl rand -base64 32`) |
-| `REDIS_URL` | `redis://redis:6379/0` | Redis connection URL |
-| `SESSION_TTL_HOURS` | `4` | Hours before session files are purged |
-| `MAX_FILE_SIZE_MB` | `500` | Maximum dataset upload size in MB |
-| `SESSIONS_DIR` | `/sessions` | Where session files are stored |
-| `MAX_TRAINING_MINUTES` | `10` | Hard timeout for the training subprocess |
-| `MAX_MEMORY_GB` | `12` | Docker memory cap for the worker container |
-| `MAX_OUTPUT_GB` | `10` | Max disk output per training run (`RLIMIT_FSIZE`) |
-| `MAX_EPOCHS` | `200` | Maximum epochs the generated script may train for |
-| `NEXT_PUBLIC_UPLOAD_URL` | `http://localhost:8000` | Direct browser→backend URL for large uploads (bypasses Next.js proxy). Set to your host's public backend address in production. |
+| Variable | Default | What it does |
+|----------|---------|--------------|
+| `AUTH_SECRET` | — | **Required.** Secures session cookies. Generate with `openssl rand -base64 32` |
+| `AI_PROVIDER` | `anthropic` | Which AI to use: `anthropic`, `openai`, or `lmstudio` |
+| `AI_MODEL` | provider default | Override the specific model, e.g. `claude-sonnet-4-6` or `gpt-4o` |
+| `ANTHROPIC_API_KEY` | — | Required when using Anthropic |
+| `OPENAI_API_KEY` | — | Required when using OpenAI |
+| `LMSTUDIO_BASE_URL` | `http://localhost:1234/v1` | Required when using LM Studio |
+| `SESSION_TTL_HOURS` | `4` | How long before uploaded files and session data are automatically deleted |
+| `MAX_FILE_SIZE_MB` | `500` | Maximum size of dataset uploads |
+| `MAX_TRAINING_MINUTES` | `10` | How long a training job is allowed to run before being stopped |
+| `MAX_MEMORY_GB` | `12` | Maximum memory the training worker can use |
+| `MAX_EPOCHS` | `200` | Maximum number of training epochs any generated script can run |
+| `NEXT_PUBLIC_UPLOAD_URL` | `http://localhost:8000` | The backend URL used for large file uploads. Change this to your server's public address when deploying |
 
 ---
 
 ## Sample Datasets
 
-Two sample datasets are included in the repository root to get started immediately:
+Two datasets are included so you can try the platform immediately after setup.
 
-### `heart_failure_dataset.csv` — Binary Classification
-918 patients with 11 clinical features including age, sex, chest pain type, resting blood pressure, cholesterol, fasting blood sugar, resting ECG, max heart rate, exercise angina, ST depression (Oldpeak), and ST slope. Target column: `HeartDisease` (0 = no disease, 1 = disease).
+**`heart_failure_dataset.csv`** — 918 patients with 11 clinical features including age, chest pain type, blood pressure, cholesterol, and ECG results. The goal is to predict whether a patient has heart disease.
 
-**Try:** *"Build a binary classifier to predict heart disease risk. Use a deep neural network with dropout regularisation."*
+Try: *"Build a binary classifier to predict heart disease. Use a deep neural network with dropout regularisation."*
+
+**`energy_consumption_sample.csv`** — Hourly energy consumption readings over time. The goal is to forecast future consumption.
+
+Try: *"Forecast energy consumption for the next 24 hours using an LSTM."*
+
 ---
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|------------|
-| Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4, shadcn/ui |
+| Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4 |
 | AI / Streaming | Vercel AI SDK 6, Anthropic / OpenAI / LM Studio |
-| Charting | Recharts |
-| Backend API | FastAPI 0.128+, Python 3.11, uv |
+| Backend API | FastAPI, Python 3.11 |
 | Task Queue | Celery 5, Redis 7 |
 | ML Runtime | TensorFlow 2.16+, Keras 3, NumPy, Pandas, scikit-learn, Gymnasium |
-| Vector Store | FAISS (CPU), sentence-transformers (`all-MiniLM-L6-v2`), pypdf |
-| Visualisation | Matplotlib, Seaborn, Statsmodels |
-| Notebook | nbformat |
+| Research | FAISS vector store, sentence-transformers, pypdf, arXiv API, Context7 |
+| Research Mode | 8-agent autonomous loop, MongoDB, FAISS novelty index |
 | Deployment | Docker, Docker Compose |
 
 ---
 
-## Project Structure
+## Security
 
-```
-obsidian-networks/
-├── frontend/                       # Next.js 16 application
-│   ├── app/
-│   │   ├── api/
-│   │   │   ├── chat/route.ts       # streamText, research tools, system prompt
-│   │   │   ├── platform.ts         # API client helpers (upload, compile, download)
-│   │   │   └── routes.ts           # Centralised URL constants
-│   │   └── home/                   # Main application page
-│   ├── components/
-│   │   ├── artifacts/              # Downloads panel, compile section, plot gallery, SSE progress
-│   │   ├── chat/                   # Chat UI, tool status chips, file attachments
-│   │   └── ui/                     # shadcn/ui primitives
-│   ├── hooks/                      # React hooks (session, scroll, environment)
-│   └── lib/                        # Multi-provider model resolver, utilities
-├── backend/                        # FastAPI application + Celery worker
-│   ├── routers/
-│   │   └── platform.py             # Session, upload, analysis, notebook, compile, image serving, vectorstore + phase endpoints
-│   ├── vectorstore.py              # FAISS index management, sentence-transformers embedding, chunking
-│   ├── tasks.py                    # Celery task — AST validation + subprocess run + metrics parsing
-│   ├── sessions.py                 # Session directory management + TTL cleanup + phase state machine
-│   └── main.py                     # FastAPI app, CORS, router registration, embedding model warm-up
-├── docker-compose.yml              # Full stack: frontend + api + worker + redis
-├── worker-seccomp.json             # Seccomp profile blocking dangerous syscalls in worker
-├── .env.example                    # Root environment variables with documentation
-├── backend/.env.example            # Backend-specific environment variables
-├── heart_failure_dataset.csv       # Sample dataset — binary classification
-└── energy_consumption_sample.csv   # Sample dataset — time series forecasting
-```
+Generated scripts are checked for dangerous code before they ever run. Imports are restricted to a safe allowlist of known ML libraries. Calls to system commands, file execution, and anything that could affect your machine outside the sandbox are blocked.
 
----
+Training runs happen inside an isolated subprocess with a hard time limit, a memory cap, and a file size limit. The worker container runs with additional Docker-level restrictions — blocked system calls, dropped Linux capabilities, and process limits — to prevent any generated code from escaping its sandbox.
 
-## Security Model
-
-### AST Validation
-
-Generated scripts are validated at the AST level before execution. An allowlist restricts imports to `tensorflow`, `keras`, `numpy`, `pandas`, `scikit-learn`, `scipy`, `gymnasium`, `matplotlib`, `seaborn`, `statsmodels`, and standard library modules. Calls to `os.system`, `os.popen`, `eval`, `exec`, and `execve` are explicitly blocked regardless of how they are invoked.
-
-### Subprocess Isolation
-
-Scripts run in a subprocess with a stripped environment — only `PATH`, `HOME`, `PYTHONUNBUFFERED`, and TensorFlow thread-count variables are set — with a configurable hard timeout (default: 10 minutes). Per-process resource limits are applied on Linux via `resource.setrlimit`:
-
-| Limit | Value | Env var | Purpose |
-|---|---|---|---|
-| CPU time (`RLIMIT_CPU`) | 600s soft / 660s hard | `MAX_TRAINING_MINUTES` | Prevents runaway training loops |
-| File size (`RLIMIT_FSIZE`) | 10 GB | `MAX_OUTPUT_GB` | Prevents disk-fill attacks |
-
-Memory is capped at the Docker container level (`mem_limit`) rather than via `RLIMIT_AS` — virtual address space limits cause TensorFlow thread-pool failures when `RLIMIT_AS` is set too low.
-
-### Docker Sandbox
-
-The Celery worker container runs with an additional layer of Docker-level hardening:
-
-- **Seccomp profile** (`worker-seccomp.json`): Blocks dangerous syscalls including `ptrace`, `mount`, `pivot_root`, `bpf`, `kexec_load`, `add_key`, and others. `clone` is permitted (required by `subprocess.Popen`); namespace-related syscalls (`unshare`, `setns`, `pivot_root`) remain blocked.
-- **Capability restrictions**: `cap_drop: ALL` with only `DAC_OVERRIDE`, `SETUID`, `SETGID`, and `CHOWN` re-added
-- **Process limits**: `nproc=65536`, `nofile=65536` (TensorFlow and data loaders spawn many threads)
-- **Memory cap**: `mem_limit` default 12 GB RAM + 16 GB swap (configurable via `MAX_MEMORY_GB`)
-
-Each session's files are isolated in a per-session directory that no other session can access.
-
----
-
-## Recent Updates
-
-### v0.8.0 — Reliable Research Pipeline (arXiv PDFs + Context7 Docs)
-
-The research phase has been completely reworked to eliminate the two root causes of bad model generation: wrong paper content and inaccurate Keras API usage.
-
-**arXiv — correct paper selection and full PDF ingestion**
-- Replaced `fetch_arxiv_papers` + `fetch_url` + `ingest_url` (3 fragile tools) with two focused tools:
-  - `search_arxiv` — queries the arXiv API and returns titles, abstracts, and `arxiv_id` fields. The model reads abstracts to select the most relevant papers — no blind fetching
-  - `ingest_arxiv_paper(arxiv_id)` — backend constructs `arxiv.org/pdf/{id}` directly from the ID returned by search; no URL construction or guessing by the model. Downloads the full PDF and indexes it into FAISS
-- Eliminated the failure mode where the model would hallucinate or mis-construct arXiv URLs, causing it to fetch wrong or empty content and then make up architecture decisions
-
-**TensorFlow/Keras docs — replaced DuckDuckGo scraping with Context7**
-- Replaced `search_tensorflow_docs` (DuckDuckGo → scraped HTML → 4000-word truncated snippet) with `fetch_tensorflow_docs(topic)`, which fetches real code examples and API signatures directly from [Context7](https://context7.com) (keras.io primary, tensorflow/docs secondary)
-- Context7 returns structured, code-first documentation with correct API signatures — not scraped navigation HTML
-- Docs are ingested directly into the session FAISS vector store; no content is passed back through the model context
-
-**Backend**
-- `POST /platform/vectorstore/{session_id}/ingest` now accepts an optional `text` field; when provided, the HTTP download is skipped entirely (used by the Context7 docs path)
-- HTTP fetch timeout on ingest raised from 60s → 90s to accommodate large PDFs
-
-### v0.7.0 — Research → Plan → Build Pipeline
-
-The entire code-generation workflow has been rearchitected around a three-phase pipeline backed by a real vector store:
-
-**Research phase (new)**
-- `fetch_url` now triggers `ingest_url`, which downloads the full paper independently (no truncation) and indexes it into a per-session **FAISS vector store** using `all-MiniLM-L6-v2` embeddings from sentence-transformers
-- Papers are chunked at 400 words with 80-word overlap and stored with source URL + title metadata
-- arXiv abstract truncation raised from 500 → 2000 characters; PDF fetch timeout raised from 10s → 45s
-- New `finalize_research` tool transitions the session to planning phase after all sources are indexed
-
-**Planning phase (new)**
-- Agent queries the vector store with `query_research` (minimum 6 targeted queries) to retrieve the most relevant chunks before writing a single line of code
-- `produce_plan` submits a structured **Plan Document** covering: problem framing, feature engineering, architecture with mathematical justification, hyperparameters with source citations, training strategy, and evaluation metrics
-- Every hyperparameter and architecture decision cites a specific retrieved chunk's source URL — no more decisions from training-data priors
-- The plan is shown to the user for review and approval before build begins
-
-**Build phase (enforced)**
-- `edit_script`, `create_notebook`, and `run_code` are hard-locked until `approve_plan` is called
-- The backend enforces this at the API level (HTTP 403 if phase is not `approved` or `building`)
-- Every in-code comment references the approved plan section or paper source
-- Session phase persisted to disk (`phase.txt`, `plan.md`) — survives backend restarts within TTL
-
-**Infrastructure**
-- New `backend/vectorstore.py` module: FAISS index management, sentence-transformers embedding, chunking, per-session asyncio locks
-- New backend endpoints: `POST /platform/vectorstore/{session_id}/ingest`, `POST /platform/vectorstore/{session_id}/query`, `GET/POST /platform/session/{session_id}/phase`
-- Embedding model pre-warmed at startup (avoids 5–15s first-request latency)
-- New dependencies: `faiss-cpu>=1.8.0`, `sentence-transformers>=3.0.0`, `pypdf>=4.0.0`
-- `stepCountIs` limit raised from 25 → 40 to accommodate the research + planning tool budget
-
-### v0.6.0 — Reinforcement Learning + Large Uploads + Script Reliability
-- **RL support**: Full PPO, DQN, and SAC generation with custom Gymnasium environments. Separate validator rules for RL scripts (no `model.fit()` required; saves `actor.keras`/`critic.keras`/`qnetwork.keras`). `patch_canonical_plots` skips RL scripts to avoid crashes on custom training loops.
-- **Large file uploads**: Uploads up to 500 MB now go directly from the browser to the backend (`NEXT_PUBLIC_UPLOAD_URL`), bypassing Next.js proxy buffering. Starlette multipart parser raised to 10 GB part limit via manual `MultiPartParser` instantiation.
-- **CSV delimiter auto-detection**: `csv.Sniffer` detects comma, semicolon, tab, and pipe delimiters automatically on upload.
-- **Script write/validate flow**: The agent now writes scripts via `edit_script(old_str="__REPLACE_ALL__")` before calling `create_notebook` with only a description. This eliminates JSON serialisation corruption of large Python scripts passed through tool arguments.
-- **Script always saved on validation failure**: `generated_script.py` is written before validation so `read_script` and `edit_script` are always available after a failed `create_notebook`, breaking the rewrite loop.
-- **`edit_script` accepts `__REPLACE_ALL__`**: Lets the agent replace the entire script in one call when facing widespread syntax or indentation errors.
-- **arXiv full-paper reading**: `fetch_url` rewrites `arxiv.org/abs/` → `arxiv.org/html/` to fetch full paper text instead of abstract-only pages, with fallback for papers without HTML rendering.
-- **`run_code` tool**: Agent can now execute Python snippets in the session directory to inspect data, verify column names/shapes, and test logic before writing the full script.
-
-### v0.5.0 — Context Efficiency
-- **Anthropic**: system prompt cached via `cache_control: ephemeral` — reduces cost and latency on every request
-- **Anthropic**: server-side `contextManagement` automatically clears old tool-use results (arXiv/TF doc fetches) when context exceeds 60k tokens, keeping the last 3 tool turns
-- **OpenAI / LM Studio**: `pruneMessages` strips tool call results older than the last 5 message turns before sending
-- Long sessions no longer hit rate limits or degrade in quality as conversation history grows
-
-### v0.4.0 — Docker Sandbox + Plot Gallery
-- Worker container hardened with seccomp profile, capability restrictions, and resource limits
-- Generated scripts automatically save matplotlib/seaborn figures to session output
-- Plot thumbnails appear in the Downloads panel after compilation; click to open full-size lightbox
-- `Saving plots…` spinner prevents false "no plots" states during post-compilation file writes
-- Epochs badge shows exact training duration and EarlyStopping status
-
-### v0.3.0 — Time Series Forecasting
-- Automatic detection of datetime columns and sampling frequency
-- LSTM, Stacked LSTM, and Temporal Fusion Transformer architecture selection
-- Correct `timeseries_dataset_from_array` windowing (no data leakage)
-- `energy_consumption_sample.csv` sample dataset included
-- Notebook environment setup cells added for Linux/WSL2 CPU, NVIDIA GPU, and Google Colab
-
-### v0.2.0 — Training Metrics Visualisation
-- Live loss/accuracy chart appears inline during compilation, streamed epoch-by-epoch via SSE
-- Click the expand icon to open a full-size chart with tooltip, legend, and stat pills
-- Dual-axis layout: loss on the left, accuracy percentage on the right
-- Built with Recharts + shadcn-style `ChartContainer` component
-
----
-
-## Roadmap
-
-- [x] Research → Plan → Build pipeline (FAISS vector store, cited plan document, phase-gated code generation)
-- [ ] Image dataset support (upload folder of images, auto-generate CNN/ViT architectures)
-- [x] Time series forecasting templates (LSTM, Temporal Fusion Transformer)
-- [x] Training metrics visualisation (live loss/accuracy charts during compilation)
-- [ ] Model comparison — compile multiple architectures and compare results side-by-side
-- [x] Docker-isolated compilation sandbox (seccomp profile, capability restrictions, resource limits)
-- [x] Plot gallery — view matplotlib/seaborn figures inline after compilation
-- [x] Reinforcement learning support (PPO, DQN, SAC with Gymnasium environments)
-- [x] Large file uploads up to 500 MB (direct browser→backend, bypasses Next.js proxy)
-- [ ] Export to ONNX / TensorFlow Lite for edge deployment
+Your uploaded files are stored in a private per-session directory that no other session can access, and everything is automatically deleted after the session expires.
 
 ---
 
