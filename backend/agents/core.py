@@ -96,8 +96,9 @@ class BaseAgent(ABC):
     async def _call_claude(self, prompt: str, max_tokens: int = 2000) -> str:
         if self._anthropic is None:
             self._anthropic = AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+        model = self.base_model or os.environ.get("AI_MODEL") or "claude-sonnet-4-6"
         response = await self._anthropic.messages.create(
-            model=self.base_model,
+            model=model,
             max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
         )

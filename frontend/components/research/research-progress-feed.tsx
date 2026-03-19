@@ -63,9 +63,10 @@ function AgentBadge({ name }: { name: string }) {
 }
 
 function EventRow({ event, idx }: { event: ProgressEvent; idx: number }) {
-  const Icon = EVENT_ICONS[event.event_type] ?? ChevronRight
-  const color = EVENT_COLORS[event.event_type] ?? 'text-zinc-400'
-  const isSpinner = event.event_type === 'agent_start' || event.event_type.endsWith('_start')
+  const type = event.event_type ?? ''
+  const Icon = EVENT_ICONS[type] ?? ChevronRight
+  const color = EVENT_COLORS[type] ?? 'text-zinc-400'
+  const isSpinner = type === 'agent_start' || type.endsWith('_start')
   const time = new Date(event.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
   return (
@@ -75,7 +76,7 @@ function EventRow({ event, idx }: { event: ProgressEvent; idx: number }) {
       </span>
       <div className="flex-1 min-w-0">
         <p className={`text-xs leading-snug ${color}`}>
-          {event.message || event.event_type.replace(/_/g, ' ')}
+          {event.message || type.replace(/_/g, ' ')}
         </p>
         {event.data && Object.keys(event.data).length > 0 && (
           <div className="mt-1 flex flex-wrap gap-1">
@@ -122,6 +123,7 @@ export function ResearchProgressFeed({ researchId, onComplete, onError }: Resear
     es.addEventListener('progress', (e) => {
       try {
         const data: ProgressEvent = JSON.parse((e as MessageEvent).data)
+        if (!data.event_type) return
         setEvents(prev => [...prev, data])
 
         if (data.event_type === 'session_complete') {

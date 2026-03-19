@@ -211,7 +211,7 @@ def run_research_generation(self, research_session_id: str, context: dict):
         # Build agents with shared config
         agent_kwargs = {
             "research_session_id" : research_id,
-            "base_model"          : context.get("base_model", os.environ.get("AI_MODEL", "claude-sonnet-4-6")),
+            "base_model"          : context.get("base_model") or os.environ.get("AI_MODEL") or "claude-sonnet-4-6",
             "domain"              : context.get("domain", "vision"),
         }
 
