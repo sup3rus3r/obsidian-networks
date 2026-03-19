@@ -1026,6 +1026,7 @@ _VALID_TRANSITIONS: dict[str, set[str]] = {
 class _IngestRequest(_pydantic.BaseModel):
     url  : str
     title: str = ""
+    text : str | None = None  # Pre-fetched text (e.g. from Context7); skips HTTP download when provided
 
 
 class _QueryRequest(_pydantic.BaseModel):
@@ -1051,32 +1052,36 @@ async def vectorstore_ingest(session_id: str, payload: _IngestRequest):
 
     url = payload.url
 
-    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-        try:
-            resp = await client.get(url, headers={"User-Agent": "obsidian-networks-research/1.0"})
-        except Exception as e:
-            raise HTTPException(status_code=502, detail=f"Fetch failed for {url}: {e}")
-        if resp.status_code != 200:
-            raise HTTPException(status_code=502, detail=f"HTTP {resp.status_code} fetching {url}")
-        content_type = resp.headers.get("content-type", "")
-        raw_bytes    = resp.content
-
-    # Extract plain text
-    text = ""
-    if "pdf" in content_type or url.lower().endswith(".pdf"):
-        try:
-            from pypdf import PdfReader
-            import io
-            reader = PdfReader(io.BytesIO(raw_bytes))
-            text   = "\n".join(page.extract_text() or "" for page in reader.pages)
-        except Exception as e:
-            raise HTTPException(status_code=422, detail=f"PDF parse failed: {e}")
+    if payload.text:
+        # Text already provided (e.g. from Context7 docs fetch) — skip HTTP download
+        text = payload.text
     else:
-        from bs4 import BeautifulSoup
-        soup = BeautifulSoup(raw_bytes, "html.parser")
-        for tag in soup(["script", "style", "nav", "footer", "header"]):
-            tag.decompose()
-        text = soup.get_text(separator=" ", strip=True)
+        async with httpx.AsyncClient(timeout=90.0, follow_redirects=True) as client:
+            try:
+                resp = await client.get(url, headers={"User-Agent": "obsidian-networks-research/1.0"})
+            except Exception as e:
+                raise HTTPException(status_code=502, detail=f"Fetch failed for {url}: {e}")
+            if resp.status_code != 200:
+                raise HTTPException(status_code=502, detail=f"HTTP {resp.status_code} fetching {url}")
+            content_type = resp.headers.get("content-type", "")
+            raw_bytes    = resp.content
+
+        # Extract plain text
+        text = ""
+        if "pdf" in content_type or url.lower().endswith(".pdf"):
+            try:
+                from pypdf import PdfReader
+                import io
+                reader = PdfReader(io.BytesIO(raw_bytes))
+                text   = "\n".join(page.extract_text() or "" for page in reader.pages)
+            except Exception as e:
+                raise HTTPException(status_code=422, detail=f"PDF parse failed: {e}")
+        else:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(raw_bytes, "html.parser")
+            for tag in soup(["script", "style", "nav", "footer", "header"]):
+                tag.decompose()
+            text = soup.get_text(separator=" ", strip=True)
 
     if not text.strip():
         raise HTTPException(status_code=422, detail="No text content extracted from URL")

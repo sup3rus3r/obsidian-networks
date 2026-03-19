@@ -4,6 +4,25 @@
 
 ---
 
+**The world's most powerful open-source AI platform for building production-ready machine learning models — no expertise required.**
+
+**Obsidian Networks eliminates everything that slows you down.** No more hunting through research papers. No more wrestling with boilerplate. No more debugging cryptic TensorFlow errors at 2am. No more paying consultants to do something a machine can do better, faster, and with full citations.
+
+**Upload a dataset. Describe what you want. Walk away with a trained model.**
+
+**Healthcare teams** use it to predict patient outcomes from clinical records. **Financial institutions** use it to detect fraud, forecast risk, and build trading signals. **Retailers** use it to model churn, optimise pricing, and forecast demand. **Manufacturers** use it to predict equipment failure before it happens. **Researchers** use it to prototype and validate ideas in minutes instead of weeks. **Startups** use it to build ML capabilities without hiring a data science team. If your industry runs on data — and every industry does — **Obsidian Networks turns that data into intelligence.**
+
+**What it takes away from you:**
+- **Weeks of research** — replaced by an agent that reads the actual papers
+- **Days of boilerplate** — replaced by a cited, reviewed, production-ready training script
+- **Hours of debugging** — replaced by a self-healing compile loop that fixes its own errors
+- **Expertise gatekeeping** — replaced by a platform that guides you from raw CSV to deployed model
+- **Cloud lock-in** — replaced by a fully self-hostable stack you own completely
+
+**This is not a code assistant. This is a research engineer, architect, and ML developer — working in parallel, grounded in literature, and available to anyone.**
+
+---
+
 ## What is Obsidian Networks?
 
 **Obsidian Networks** is an AI-powered platform that generates **complete machine learning pipelines** from a simple description of your problem.
@@ -101,7 +120,7 @@ When a generated training script fails to compile, the platform automatically fe
 Most ML platforms assume you already know how to build models. **Obsidian Networks** inverts that assumption.
 
 - **No ML expertise required** — Describe your goal in plain English. The AI selects the architecture, verifies the API, writes the code, and trains the model.
-- **Research-backed output** — Before generating a single line of code, the agent fetches full paper text from arXiv, indexes it into a local FAISS vector store, and produces a cited plan document. Every architectural decision traces back to a specific paper chunk with a source URL.
+- **Research-backed output** — Before generating a single line of code, the agent searches arXiv, reads abstracts to select relevant papers, and downloads the full PDFs directly into a local FAISS vector store. Keras/TF API docs are pulled from Context7 and indexed alongside the papers. Every architectural decision in the plan traces back to a specific retrieved chunk with a source URL.
 - **End-to-end in one session** — From raw CSV to a trained `.keras` file without switching tools, writing boilerplate, or managing environments.
 - **Time series support** — Upload hourly or daily data and receive a complete LSTM or Temporal Fusion Transformer script with correct temporal windowing and no data leakage.
 - **Reinforcement learning support** — Describe an RL problem — trading agent, game controller, robot policy — and receive a complete Gymnasium environment, actor/critic networks, and a training loop.
@@ -117,7 +136,7 @@ Upload dataset  →  Describe your goal  →  Research  →  Plan  →  Build  �
 ```
 
 **1. Research**
-The AI agent fetches full paper text from arXiv (HTML render or PDF) for your problem domain, searches the TensorFlow/Keras docs to verify current API signatures, and **indexes everything into a per-session FAISS vector store** using a local sentence-transformers embedding model. No paper content is discarded — the full text is chunked and embedded so it can be retrieved during planning.
+The AI agent searches arXiv for relevant papers, reads the abstracts to select the most relevant ones, then downloads the **full PDFs directly** into a per-session FAISS vector store. TensorFlow/Keras API docs are fetched from [Context7](https://context7.com) — returning real code snippets and current API signatures from keras.io — and also indexed into the vector store. No content is truncated or discarded; everything is chunked and embedded for retrieval during planning.
 
 **2. Plan**
 The agent queries the vector store with targeted questions (architecture type, layer sizes, activations, optimizer, regularisation, evaluation metrics) and synthesises findings into a **structured Plan Document** — covering problem framing, feature engineering, architecture with mathematical justification, hyperparameters with citations, and training strategy. Every decision cites a specific retrieved chunk with its source URL. The plan is presented to you for review before any code is written.
@@ -280,7 +299,7 @@ No external services required beyond your LLM API key.
 
 1. The Next.js frontend proxies all `/api/platform/*` requests to the FastAPI backend via `next.config.ts` rewrites. Large file uploads bypass the proxy entirely, going directly to the backend at `NEXT_PUBLIC_UPLOAD_URL` to avoid buffering limits.
 2. The AI chat route (`app/api/chat/route.ts`) operates in three strict phases gated by a backend state machine:
-   - **Research phase**: `fetch_arxiv_papers`, `fetch_url`, `search_tensorflow_docs` — paper content is automatically indexed into a per-session FAISS vector store via `ingest_url`
+   - **Research phase**: `search_arxiv` returns paper abstracts for the model to evaluate; `ingest_arxiv_paper` downloads the full PDF by arXiv ID directly to the FAISS vector store (no URL guessing, no truncation); `fetch_tensorflow_docs` fetches authoritative Keras/TF code snippets from Context7 (keras.io + tensorflow/docs) and ingests them into the same vector store
    - **Planning phase**: `query_research` retrieves relevant chunks; `produce_plan` submits a cited markdown plan document for user approval
    - **Build phase** (unlocked after user approves): `run_code`, `edit_script`, `create_notebook` — code generation grounded in the approved plan
 3. The agent writes the training script via `edit_script(old_str="__REPLACE_ALL__", ...)`, then calls `create_notebook` with only a description. The backend reads the saved script, applies AST/regex patches, validates it, and wraps it in a `.ipynb` notebook.
@@ -507,6 +526,25 @@ Each session's files are isolated in a per-session directory that no other sessi
 ---
 
 ## Recent Updates
+
+### v0.8.0 — Reliable Research Pipeline (arXiv PDFs + Context7 Docs)
+
+The research phase has been completely reworked to eliminate the two root causes of bad model generation: wrong paper content and inaccurate Keras API usage.
+
+**arXiv — correct paper selection and full PDF ingestion**
+- Replaced `fetch_arxiv_papers` + `fetch_url` + `ingest_url` (3 fragile tools) with two focused tools:
+  - `search_arxiv` — queries the arXiv API and returns titles, abstracts, and `arxiv_id` fields. The model reads abstracts to select the most relevant papers — no blind fetching
+  - `ingest_arxiv_paper(arxiv_id)` — backend constructs `arxiv.org/pdf/{id}` directly from the ID returned by search; no URL construction or guessing by the model. Downloads the full PDF and indexes it into FAISS
+- Eliminated the failure mode where the model would hallucinate or mis-construct arXiv URLs, causing it to fetch wrong or empty content and then make up architecture decisions
+
+**TensorFlow/Keras docs — replaced DuckDuckGo scraping with Context7**
+- Replaced `search_tensorflow_docs` (DuckDuckGo → scraped HTML → 4000-word truncated snippet) with `fetch_tensorflow_docs(topic)`, which fetches real code examples and API signatures directly from [Context7](https://context7.com) (keras.io primary, tensorflow/docs secondary)
+- Context7 returns structured, code-first documentation with correct API signatures — not scraped navigation HTML
+- Docs are ingested directly into the session FAISS vector store; no content is passed back through the model context
+
+**Backend**
+- `POST /platform/vectorstore/{session_id}/ingest` now accepts an optional `text` field; when provided, the HTTP download is skipped entirely (used by the Context7 docs path)
+- HTTP fetch timeout on ingest raised from 60s → 90s to accommodate large PDFs
 
 ### v0.7.0 — Research → Plan → Build Pipeline
 

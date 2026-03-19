@@ -12,8 +12,7 @@ const MAX_HISTORY_MSGS: Record<string, number> = {
   lmstudio : 16,
 }
 
-const FETCH_TIMEOUT     = 10_000
-const PDF_FETCH_TIMEOUT = 45_000
+const FETCH_TIMEOUT = 10_000
 
 async function fetchText(url: string): Promise<string> {
   const res = await fetch(url, {
@@ -23,78 +22,22 @@ async function fetchText(url: string): Promise<string> {
   return res.text()
 }
 
-async function fetchPdfText(url: string): Promise<string | null> {
-  try {
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; obsidian-networks-research/1.0)' },
-      signal : AbortSignal.timeout(PDF_FETCH_TIMEOUT),
-    })
-    if (!res.ok) return null
-    const buf = Buffer.from(await res.arrayBuffer())
-    // Import the inner module directly — pdf-parse/index.js runs a self-test on
-    // load that requires a fixture file, which crashes in Next.js builds.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const pdfParse: (buf: Buffer) => Promise<{ text: string }> = require('pdf-parse/lib/pdf-parse.js')
-    const result = await pdfParse(buf)
-    return result.text ?? null
-  } catch {
-    return null
-  }
-}
-
-function htmlToText(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function wordTruncate(text: string, max: number): string {
-  const words = text.split(/\s+/)
-  return words.length > max ? words.slice(0, max).join(' ') + ' …' : text
-}
-
-interface SearchResult {
-  title  : string
-  url    : string
-  snippet: string
-}
-
-async function searchDDG(query: string, maxResults = 3): Promise<SearchResult[]> {
-  const html = await fetchText(
-    `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`
+async function fetchContext7Docs(topic: string): Promise<string> {
+  // Fetch from keras.io (primary — highest trust score, most relevant API docs)
+  const kerasRes = await fetch(
+    `https://context7.com/api/v1/websites/keras_io?tokens=8000&topic=${encodeURIComponent(topic)}`,
+    { signal: AbortSignal.timeout(15_000) }
   )
+  const kerasText = kerasRes.ok ? await kerasRes.text() : ''
 
-  const results: SearchResult[] = []
+  // Fetch from tensorflow/docs (secondary — covers tf.data, callbacks, training APIs)
+  const tfRes = await fetch(
+    `https://context7.com/api/v1/tensorflow/docs?tokens=4000&topic=${encodeURIComponent(topic)}`,
+    { signal: AbortSignal.timeout(15_000) }
+  )
+  const tfText = tfRes.ok ? await tfRes.text() : ''
 
-  const titleRe   = /<a[^>]+class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g
-  const snippetRe = /<[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/(?:a|div|span)>/g
-
-  const titles   = [...html.matchAll(titleRe)]
-  const snippets = [...html.matchAll(snippetRe)]
-
-  for (let i = 0; i < Math.min(titles.length, snippets.length, maxResults); i++) {
-    const rawHref = titles[i][1]
-    let url = rawHref
-    const uddg = rawHref.match(/[?&]uddg=([^&]+)/)
-    if (uddg) url = decodeURIComponent(uddg[1])
-
-    results.push({
-      title  : htmlToText(titles[i][2]),
-      url,
-      snippet: htmlToText(snippets[i][1]),
-    })
-  }
-
-  return results
+  return [kerasText, tfText].filter(Boolean).join('\n\n---\n\n')
 }
 
 interface Paper {
@@ -121,66 +64,21 @@ function parseArxiv(xml: string): Paper[] {
   return papers
 }
 
-const ALLOWED_DOMAINS = [
-  'tensorflow.org',
-  'keras.io',
-  'arxiv.org',
-  'paperswithcode.com',
-  'huggingface.co',
-]
-
-function isAllowedUrl(raw: string): boolean {
-  try {
-    const { hostname } = new URL(raw)
-    return ALLOWED_DOMAINS.some(d => hostname === d || hostname.endsWith('.' + d))
-  } catch {
-    return false
-  }
-}
 
 function createResearchTools(sessionId: string | null) {
   const apiBase = process.env.INTERNAL_API_URL ?? 'http://localhost:8000'
 
   return {
-    search_tensorflow_docs: tool({
+    search_arxiv: tool({
       description:
-        'Search the TensorFlow and Keras documentation for API references, guides, and tutorials. ' +
-        'Always call this before writing any model architecture or preprocessing code to verify ' +
-        'current Keras 3 API signatures and avoid deprecated patterns.',
+        'Search arXiv for research papers relevant to the ML task. ' +
+        'Returns paper titles, authors, abstracts, and arXiv IDs. ' +
+        'Read the abstracts carefully and select the most relevant papers. ' +
+        'Then call ingest_arxiv_paper for each selected paper to download and index the full PDF. ' +
+        'Call this 2 times with different query angles to get broad coverage.',
       inputSchema: z.object({
-        query: z.string().describe(
-          'Search query, e.g. "Conv2D layer parameters keras 3" or "EarlyStopping callback"'
-        ),
-      }),
-      execute: async (input: { query: string }) => {
-        try {
-          const results = await searchDDG(
-            `site:keras.io OR site:tensorflow.org/api_docs ${input.query}`,
-            3
-          )
-          let topContent: string | null = null
-          for (const r of results) {
-            if (isAllowedUrl(r.url)) {
-              try {
-                const raw = await fetchText(r.url)
-                if (raw) { topContent = wordTruncate(htmlToText(raw), 4000); break }
-              } catch { /* skip */ }
-            }
-          }
-          return { query: input.query, results, topContent }
-        } catch (err) {
-          return { query: input.query, results: [] as SearchResult[], topContent: null, error: String(err) }
-        }
-      },
-    }),
-
-    fetch_arxiv_papers: tool({
-      description:
-        'Fetch recent research papers from arXiv for a given ML problem domain. ' +
-        'Call this when the user describes a specific task to ground recommendations in recent literature.',
-      inputSchema: z.object({
-        query      : z.string().describe('arXiv search terms, e.g. "tabular classification neural network 2024"'),
-        max_results: z.number().int().min(1).max(5).default(3),
+        query      : z.string().describe('arXiv search terms, e.g. "tabular classification deep learning 2024"'),
+        max_results: z.number().int().min(1).max(6).default(5),
       }),
       execute: async (input: { query: string; max_results: number }) => {
         try {
@@ -191,84 +89,83 @@ function createResearchTools(sessionId: string | null) {
             `&sortBy=relevance&sortOrder=descending`
           )
           const papers = parseArxiv(xml)
-          return { query: input.query, papers }
+          // Strip version suffix from IDs so download always gets latest
+          const papersWithIds = papers.map(p => ({
+            ...p,
+            arxiv_id: p.url.split('/abs/')[1]?.replace(/v\d+$/, '') ?? '',
+          }))
+          return { query: input.query, papers: papersWithIds }
         } catch (err) {
-          return { query: input.query, papers: [] as Paper[], error: String(err) }
+          return { query: input.query, papers: [] as (Paper & { arxiv_id: string })[], error: String(err) }
         }
       },
     }),
 
-    fetch_url: tool({
+    ingest_arxiv_paper: tool({
       description:
-        'Fetch and read the full plain-text content of a specific paper or documentation page. ' +
-        'Allowed domains: tensorflow.org, keras.io, arxiv.org, paperswithcode.com, huggingface.co. ' +
-        'For arxiv URLs, automatically tries the full HTML version (/html/) before falling back to PDF then abstract. ' +
-        'After calling fetch_url, ALWAYS call ingest_url with the same URL to index it into the vector store.',
+        'Download the full PDF of an arXiv paper by its ID and index it into the session vector store. ' +
+        'This gives the planning phase access to full paper content: methods, architectures, hyperparameters. ' +
+        'Use the arxiv_id returned by search_arxiv (e.g. "2112.02962"). ' +
+        'Call this for every paper you select from search_arxiv results.',
       inputSchema: z.object({
-        url: z.string().url().describe('The URL to fetch and read'),
+        arxiv_id: z.string().describe('arXiv paper ID without version, e.g. "2112.02962"'),
+        title   : z.string().describe('Paper title from search_arxiv results'),
       }),
-      execute: async (input: { url: string }) => {
-        if (!isAllowedUrl(input.url)) {
-          return { error: `Domain not allowed. Permitted: ${ALLOWED_DOMAINS.join(', ')}` }
-        }
-        const isArxivAbs = /^https?:\/\/arxiv\.org\/abs\//.test(input.url)
-
-        async function tryFetch(url: string): Promise<string | null> {
-          try {
-            const text = await fetchText(url)
-            if (text.includes('No HTML for') || text.includes('HTML is not available')) return null
-            return text
-          } catch { return null }
-        }
-
-        let fetchedUrl = input.url
-        let raw: string | null = null
-
-        if (isArxivAbs) {
-          const htmlUrl = input.url.replace('/abs/', '/html/')
-          raw = await tryFetch(htmlUrl)
-          if (raw) {
-            fetchedUrl = htmlUrl
-          } else {
-            const pdfUrl = input.url.replace('/abs/', '/pdf/')
-            const pdfText = await fetchPdfText(pdfUrl)
-            if (pdfText) {
-              return { url: pdfUrl, content: wordTruncate(pdfText.replace(/\s+/g, ' ').trim(), 12000), source: 'pdf' }
-            }
-            raw = await tryFetch(input.url)
-            fetchedUrl = input.url
-          }
-        } else {
-          raw = await tryFetch(input.url)
-        }
-
-        if (!raw) return { url: fetchedUrl, error: 'Could not fetch page.' }
-        return { url: fetchedUrl, content: wordTruncate(htmlToText(raw), 12000), source: 'html' }
-      },
-    }),
-
-    ingest_url: tool({
-      description:
-        'Index a fetched URL into the session vector store. ' +
-        'MUST be called after every fetch_url call with the same URL and the paper title. ' +
-        'The backend downloads the full document independently (no truncation) and embeds it into FAISS. ' +
-        'This is what powers query_research in the planning phase — skip it and planning has no data.',
-      inputSchema: z.object({
-        url  : z.string().url().describe('The URL that was just fetched with fetch_url'),
-        title: z.string().describe('The paper or page title'),
-      }),
-      execute: async (input: { url: string; title: string }) => {
+      execute: async (input: { arxiv_id: string; title: string }) => {
         if (!sessionId) return { error: 'No active session' }
+        // Strip any version suffix the model may have included
+        const cleanId = input.arxiv_id.replace(/v\d+$/, '')
+        const pdfUrl  = `https://arxiv.org/pdf/${cleanId}`
         try {
           const res = await fetch(`${apiBase}/platform/vectorstore/${sessionId}/ingest`, {
             method : 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body   : JSON.stringify(input),
-            signal : AbortSignal.timeout(90_000),
+            body   : JSON.stringify({ url: pdfUrl, title: input.title }),
+            signal : AbortSignal.timeout(120_000),
           })
-          return await res.json()
+          const data = await res.json()
+          return { arxiv_id: cleanId, pdf_url: pdfUrl, ...data }
         } catch (e) {
-          return { error: String(e) }
+          return { arxiv_id: cleanId, error: String(e) }
+        }
+      },
+    }),
+
+    fetch_tensorflow_docs: tool({
+      description:
+        'Fetch authoritative Keras/TensorFlow API documentation from Context7 for a specific topic. ' +
+        'Returns real code snippets and API signatures from keras.io and tensorflow/docs. ' +
+        'Ingests the result directly into the session vector store for use during planning. ' +
+        'Call this for the specific architecture components you plan to use (e.g. "Normalization layer adapt", "EarlyStopping callback", "Dense layer functional API").',
+      inputSchema: z.object({
+        topic: z.string().describe('Specific Keras/TF topic, e.g. "Normalization layer adapt tabular" or "EarlyStopping ModelCheckpoint callbacks"'),
+      }),
+      execute: async (input: { topic: string }) => {
+        if (!sessionId) return { error: 'No active session' }
+        try {
+          const docs = await fetchContext7Docs(input.topic)
+          if (!docs.trim()) return { error: 'No documentation found for this topic' }
+
+          // Ingest directly into vector store
+          const res = await fetch(`${apiBase}/platform/vectorstore/${sessionId}/ingest`, {
+            method : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body   : JSON.stringify({
+              url  : `https://keras.io/context7/${encodeURIComponent(input.topic)}`,
+              title: `Keras/TF Docs: ${input.topic}`,
+              text : docs,
+            }),
+            signal : AbortSignal.timeout(30_000),
+          })
+          const data = await res.json()
+          // Return a short preview so the model knows what was indexed
+          return {
+            topic  : input.topic,
+            preview: docs.slice(0, 800),
+            ...data,
+          }
+        } catch (e) {
+          return { topic: input.topic, error: String(e) }
         }
       },
     }),
@@ -276,7 +173,7 @@ function createResearchTools(sessionId: string | null) {
     finalize_research: tool({
       description:
         'Signal that research is complete and transition to the PLANNING phase. ' +
-        'Call ONLY after all fetch_url + ingest_url calls are done (minimum 3 papers indexed). ' +
+        'Call ONLY after all ingest_arxiv_paper + fetch_tensorflow_docs calls are done (minimum 3 papers indexed). ' +
         'After this call, query_research and produce_plan become available.',
       inputSchema: z.object({}),
       execute: async () => {
@@ -607,7 +504,7 @@ function buildSystemPrompt(phase: string, planDoc: string | null): string {
 <phase current="${phase}">
 CURRENT PHASE: RESEARCH
 
-Available tools: fetch_arxiv_papers, fetch_url, search_tensorflow_docs, ingest_url, finalize_research
+Available tools: search_arxiv, ingest_arxiv_paper, fetch_tensorflow_docs, finalize_research
 LOCKED tools (not available yet): query_research, produce_plan, approve_plan, run_code, edit_script, create_notebook
 
 BEHAVIOUR:
@@ -615,18 +512,35 @@ BEHAVIOUR:
    → Do NOT run tools. Greet the dataset (1 sentence). Ask ONE open-ended question about the goal.
    → Do NOT name any architectures.
 
-2. USER HAS STATED A CLEAR GOAL?
-   → STEP 1: Call fetch_arxiv_papers with a domain-specific query (e.g. "tabular regression deep learning 2024")
-   → STEP 2: Call fetch_arxiv_papers AGAIN with a different angle (e.g. "neural network benchmark tabular data 2024")
-   → STEP 3: Call fetch_url on the TOP 3 most relevant paper URLs IN PARALLEL to read full text (methods, architecture, hyperparameters)
-   → STEP 4: For EACH fetch_url call, immediately call ingest_url with the same URL and title to index it into the vector store
-   → STEP 5: Call search_tensorflow_docs to verify the Keras 3 API for the top candidate architecture
-   → STEP 6: Call finalize_research to transition to the PLAN phase
-   → Do NOT form any architectural opinion yet. Do NOT describe what you found. Just move to planning.
+2. USER HAS STATED A CLEAR GOAL? Execute ALL steps below:
 
-NEVER skip ingest_url after fetch_url — the vector store must be populated before planning.
-NEVER call finalize_research before fetching and ingesting at least 3 paper URLs.
-NEVER ask more than one question at a time.
+   STEP 1 — arXiv search (call BOTH in parallel):
+     • search_arxiv(query="<primary domain query, e.g. tabular regression deep learning 2024>", max_results=5)
+     • search_arxiv(query="<different angle, e.g. neural network benchmark tabular data hyperparameter>", max_results=5)
+
+   STEP 2 — Select papers:
+     • Read the returned abstracts carefully.
+     • Select the 3–4 most relevant papers based on the abstract content and how directly they address the user's task.
+     • ONLY use the arxiv_id field returned by search_arxiv — never construct or guess IDs yourself.
+
+   STEP 3 — Ingest papers (call ALL in parallel):
+     • For each selected paper: ingest_arxiv_paper(arxiv_id="<id from search result>", title="<title from search result>")
+     • The backend downloads the full PDF and indexes it — do NOT read the PDF yourself.
+
+   STEP 4 — Fetch Keras/TF API docs (call in parallel with Step 3 or after):
+     • fetch_tensorflow_docs(topic="<architecture type relevant to task, e.g. Dense layers functional API tabular>")
+     • fetch_tensorflow_docs(topic="<training topic, e.g. EarlyStopping ModelCheckpoint callbacks>")
+     • fetch_tensorflow_docs(topic="<preprocessing topic, e.g. Normalization layer adapt training split>")
+
+   STEP 5 — finalize_research()
+
+   → Do NOT form any architectural opinion yet. Do NOT describe what you found. Just execute all steps and move to planning.
+
+RULES:
+- ALWAYS use the arxiv_id exactly as returned by search_arxiv — never modify, guess, or construct paper IDs.
+- NEVER call finalize_research before at least 3 papers are ingested.
+- NEVER call fetch_url or ingest_url — those tools no longer exist.
+- NEVER ask more than one question at a time.
 </phase>`
   }
 
@@ -637,7 +551,7 @@ NEVER ask more than one question at a time.
 CURRENT PHASE: PLANNING
 
 Available tools: query_research, produce_plan
-LOCKED tools (not available yet): fetch_arxiv_papers, fetch_url, ingest_url, run_code, edit_script, create_notebook
+LOCKED tools (not available yet): search_arxiv, ingest_arxiv_paper, fetch_tensorflow_docs, run_code, edit_script, create_notebook
 
 BEHAVIOUR:
 1. Query the vector store at least 6 times with different targeted questions before writing the plan:
