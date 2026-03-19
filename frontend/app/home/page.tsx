@@ -78,6 +78,7 @@ function Header({
         >
           <FlaskConical className="h-3 w-3" />
           Research Mode
+          <span className="rounded bg-violet-500/20 px-1 py-px text-[9px] font-semibold uppercase tracking-wider text-violet-400/80">Experimental</span>
         </Link>
 
         <button

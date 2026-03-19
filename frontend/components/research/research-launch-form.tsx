@@ -11,6 +11,19 @@ import { CategorySelector } from './category-selector'
 import { Textarea } from '@/components/ui/textarea'
 import { Loader2, FlaskConical } from 'lucide-react'
 
+// Default prompts per category — pre-filled when user selects a category
+const CATEGORY_DEFAULT_PROMPTS: Record<string, string> = {
+  vision                : 'Discover efficient image classification architectures under 10M parameters that maximize accuracy on CIFAR-10.',
+  text                  : 'Find novel transformer variants for long-context text classification with reduced memory footprint.',
+  audio                 : 'Explore compact architectures for environmental sound classification optimized for real-time inference.',
+  timeseries            : 'Discover forecasting architectures for multivariate time series with minimal lag and high accuracy.',
+  graph                 : 'Find attention-based GNN architectures for node classification on citation networks.',
+  multimodal_text_image : 'Discover cross-modal architectures that align image and text representations for zero-shot classification.',
+  tabular               : 'Explore deep learning architectures that consistently outperform XGBoost on structured tabular data.',
+  recommendation        : 'Find embedding-based architectures for collaborative filtering with cold-start resilience.',
+  generative            : 'Discover VAE variants with disentangled latent representations for controllable image generation.',
+}
+
 // Domain options per category
 const CATEGORY_DOMAINS: Record<string, string[]> = {
   vision                : ['vision'],
@@ -31,7 +44,7 @@ interface ResearchLaunchFormProps {
 export function ResearchLaunchForm({ onSessionStarted }: ResearchLaunchFormProps) {
   const [categories,   setCategories]   = useState<ResearchCategory[]>([])
   const [category,     setCategory]     = useState('vision')
-  const [description,  setDescription]  = useState('')
+  const [description,  setDescription]  = useState(CATEGORY_DEFAULT_PROMPTS['vision'] ?? '')
   const [population,   setPopulation]   = useState(3)
   const [maxGen,       setMaxGen]        = useState(3)
   const [submitting,   setSubmitting]   = useState(false)
@@ -40,6 +53,11 @@ export function ResearchLaunchForm({ onSessionStarted }: ResearchLaunchFormProps
   useEffect(() => {
     getResearchCategories().then(cats => { if (cats) setCategories(cats) })
   }, [])
+
+  const handleCategorySelect = (id: string) => {
+    setCategory(id)
+    setDescription(CATEGORY_DEFAULT_PROMPTS[id] ?? '')
+  }
 
   const domain = CATEGORY_DOMAINS[category]?.[0] ?? 'vision'
 
@@ -77,7 +95,7 @@ export function ResearchLaunchForm({ onSessionStarted }: ResearchLaunchFormProps
         <CategorySelector
           categories={categories}
           selected={category}
-          onSelect={setCategory}
+          onSelect={handleCategorySelect}
         />
       </div>
 

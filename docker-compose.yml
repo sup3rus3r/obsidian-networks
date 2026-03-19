@@ -33,6 +33,8 @@ services:
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - REDIS_URL=redis://redis:6379/0
+      - MONGO_URL=mongodb://mongo:27017
+      - MONGO_DB_NAME=${MONGO_DB_NAME:-obsidian}
       - SESSION_TTL_HOURS=${SESSION_TTL_HOURS:-4}
       - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-500}
       - MAX_TRAINING_MINUTES=${MAX_TRAINING_MINUTES:-10}
@@ -44,6 +46,8 @@ services:
       - sessions:/sessions
     depends_on:
       redis:
+        condition: service_healthy
+      mongo:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/platform/health')"]
@@ -68,6 +72,32 @@ services:
       - sessions:/sessions
     depends_on:
       redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  research-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: celery -A tasks_research.research_celery_app worker --loglevel=info --pool=solo
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - MONGO_URL=mongodb://mongo:27017
+      - MONGO_DB_NAME=${MONGO_DB_NAME:-obsidian}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - AI_PROVIDER=${AI_PROVIDER:-anthropic}
+      - AI_MODEL=${AI_MODEL:-}
+      - RESEARCH_ARTIFACTS_DIR=/research_artifacts
+      - TRAINING_DOCKER_IMAGE=${TRAINING_DOCKER_IMAGE:-obsidian-trainer:latest}
+      - RUNPOD_API_KEY=${RUNPOD_API_KEY:-}
+      - LAMBDA_API_KEY=${LAMBDA_API_KEY:-}
+    volumes:
+      - research_artifacts:/research_artifacts
+    depends_on:
+      redis:
+        condition: service_healthy
+      mongo:
         condition: service_healthy
     restart: unless-stopped
     # ── Sandbox: restrict dangerous syscalls ──────────────────────────────────
@@ -102,6 +132,19 @@ services:
       retries: 5
     restart: unless-stopped
 
+  mongo:
+    image: mongo:7
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
 volumes:
   sessions:
   redis_data:
+  mongo_data:
+  research_artifacts:

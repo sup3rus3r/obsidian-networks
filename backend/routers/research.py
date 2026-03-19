@@ -85,7 +85,6 @@ async def prepare_data(
     obs_session_id: str | None = Cookie(default=None),
 ):
     """Validate and index a dataset source (URL, HuggingFace, upload path, or synthetic)."""
-    _session_or_404(obs_session_id or "")
 
     from tasks_research import prepare_dataset_task
     task = prepare_dataset_task.delay(
@@ -110,7 +109,6 @@ async def start_research(
     obs_session_id: str | None = Cookie(default=None),
 ):
     """Launch an autonomous research session."""
-    _session_or_404(obs_session_id or "")
 
     research_id = str(uuid.uuid4())
 
