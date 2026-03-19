@@ -319,7 +319,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
   const handleSubmit = useCallback(async ({ text }: PromptInputMessage) => {
     const trimmed = text.trim()
-    if (!trimmed && !pendingFile) return
+    if (!trimmed && pendingFiles.length === 0) return
     if (isLoading || isUploading) return
 
     let schemaBlock = ''
