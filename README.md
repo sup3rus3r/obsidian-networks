@@ -8,16 +8,11 @@
 
 **Obsidian Networks eliminates everything that slows you down.** No more hunting through research papers. No more wrestling with boilerplate. No more debugging cryptic TensorFlow errors at 2am. No more paying consultants to do something a machine can do better, faster, and with full citations.
 
-**Upload a dataset. Describe what you want. Walk away with a trained model.**
+**Describe what you want. Walk away with a trained model.**
 
-**Healthcare teams** use it to predict patient outcomes from clinical records. **Financial institutions** use it to detect fraud, forecast risk, and build trading signals. **Retailers** use it to model churn, optimise pricing, and forecast demand. **Manufacturers** use it to predict equipment failure before it happens. **Researchers** use it to prototype and validate ideas in minutes instead of weeks. **Startups** use it to build ML capabilities without hiring a data science team. If your industry runs on data — and every industry does — **Obsidian Networks turns that data into intelligence.**
+**Healthcare teams** use it to predict patient outcomes from clinical records. **Financial institutions** use it to detect fraud, forecast risk, and build trading signals. **Retailers** use it to model churn, optimise pricing, and forecast demand. **Manufacturers** use it to predict equipment failure before it happens. **Researchers** use it to prototype and validate ideas in minutes instead of weeks. **Startups** use it to build ML capabilities without hiring a data science team. **Computer vision teams** use it to build CNNs, object detectors, and full video understanding models from nothing but a description of what they need. **NLP and AI research teams** use it to build Transformers, Vision Transformers, and custom attention architectures grounded in the latest literature. If your industry runs on data — and every industry does — **Obsidian Networks turns that data into intelligence.**
 
-**What it takes away from you:**
-- **Weeks of research** — replaced by an agent that reads the actual papers
-- **Days of boilerplate** — replaced by a cited, reviewed, production-ready training script
-- **Hours of debugging** — replaced by a self-healing compile loop that fixes its own errors
-- **Expertise gatekeeping** — replaced by a platform that guides you from raw CSV to deployed model
-- **Cloud lock-in** — replaced by a fully self-hostable stack you own completely
+It takes away **weeks of research**, replacing them with an agent that reads the actual papers. It takes away **days of boilerplate**, replacing them with a cited, reviewed, production-ready training script. It takes away **hours of debugging**, replacing them with a self-healing compile loop that fixes its own errors. It takes away **the expertise gatekeeping** that keeps machine learning out of reach for most teams, replacing it with a platform that interviews you, understands your problem, and builds the right solution. It takes away **cloud lock-in**, because the entire stack runs on your infrastructure and your keys.
 
 **This is not a code assistant. This is a research engineer, architect, and ML developer — working in parallel, grounded in literature, and available to anyone.**
 
