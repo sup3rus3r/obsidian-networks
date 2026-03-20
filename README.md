@@ -36,6 +36,29 @@ Autonomous Research Mode goes further — instead of solving one problem, it run
 
 ---
 
+## Screenshots
+
+<div align="center">
+
+**Main Platform — Research, Plan, Build**
+
+<img src="docs/images/image.png" alt="Obsidian Networks main platform — research plan and model builder" width="900" />
+
+*The platform reads academic literature, forms a cited plan, and generates a production training script — all in one conversation.*
+
+</div>
+
+<div align="center">
+
+**Autonomous Research Mode — Discovered Architectures Leaderboard**
+
+<img src="docs/images/image2.png" alt="Obsidian Networks Research Mode — architecture leaderboard with score breakdown" width="900" />
+
+*Eight agents run continuously, scoring each candidate on novelty, efficiency, soundness, and generalisation. Top performers seed the next generation.*
+
+</div>
+
+---
 
 ## How It Works
 
