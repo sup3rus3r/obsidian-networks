@@ -5,7 +5,8 @@
 // EXCEPTION: large file uploads go direct to the backend (NEXT_PUBLIC_UPLOAD_URL)
 // to bypass the Next.js proxy which buffers the full body and causes ECONNRESET.
 
-const UPLOAD_BASE = process.env.NEXT_PUBLIC_UPLOAD_URL ?? ''
+const UPLOAD_BASE  = process.env.NEXT_PUBLIC_UPLOAD_URL ?? ''
+const STREAM_BASE  = process.env.NEXT_PUBLIC_UPLOAD_URL ?? ''
 
 export const AppRoutes = {
   PlatformLimits:     ()            => `/api/platform/limits`,
@@ -27,7 +28,7 @@ export const AppRoutes = {
   ResearchCategories:    ()                           => `/api/platform/research/categories`,
   ResearchStart:         ()                           => `/api/platform/research/start`,
   ResearchStatus:        (rid: string)                => `/api/platform/research/${rid}/status`,
-  ResearchStream:        (rid: string)                => `/api/platform/research/${rid}/stream`,
+  ResearchStream:        (rid: string)                => `${STREAM_BASE}/platform/research/${rid}/stream`,
   ResearchCandidates:    (rid: string)                => `/api/platform/research/${rid}/candidates`,
   ResearchCandidate:     (rid: string, arch: string)  => `/api/platform/research/${rid}/candidate/${arch}`,
   ResearchCompile:       (rid: string)                => `/api/platform/research/${rid}/compile`,

@@ -64,12 +64,16 @@ def _publish(research_id: str, event: dict):
 async def _update_mongo_session(research_id: str, updates: dict):
     """Update a research session document in MongoDB."""
     try:
-        from database_mongo import get_database
-        db = get_database()
+        from motor.motor_asyncio import AsyncIOMotorClient
+        mongo_url = os.environ.get("MONGO_URL", "mongodb://mongo:27017")
+        db_name   = os.environ.get("MONGO_DB_NAME", "obsidian")
+        client = AsyncIOMotorClient(mongo_url)
+        db = client[db_name]
         await db["research_sessions"].update_one(
             {"_id": research_id},
             {"$set": updates},
         )
+        client.close()
     except Exception as e:
         logger.warning("MongoDB update failed: %s", e)
 
@@ -77,8 +81,11 @@ async def _update_mongo_session(research_id: str, updates: dict):
 async def _save_candidates(research_id: str, scored_candidates: list[dict], generated_code: list[dict]):
     """Upsert scored candidates into MongoDB."""
     try:
-        from database_mongo import get_database
-        db = get_database()
+        from motor.motor_asyncio import AsyncIOMotorClient
+        mongo_url = os.environ.get("MONGO_URL", "mongodb://mongo:27017")
+        db_name   = os.environ.get("MONGO_DB_NAME", "obsidian")
+        client = AsyncIOMotorClient(mongo_url)
+        db = client[db_name]
 
         # Build code lookup
         code_map = {g["architecture_name"]: g.get("code", "") for g in generated_code}
@@ -107,6 +114,7 @@ async def _save_candidates(research_id: str, scored_candidates: list[dict], gene
                 {"$set": doc},
                 upsert=True,
             )
+        client.close()
     except Exception as e:
         logger.warning("Failed to save candidates to MongoDB: %s", e)
 

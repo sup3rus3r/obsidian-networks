@@ -129,13 +129,14 @@ class BaseAgent(ABC):
         The /platform/research/progress/{id} SSE endpoint subscribes to this.
         """
         payload = {
-            "event"      : event,
-            "generation" : generation,
-            "depth"      : depth,
-            "agent"      : self.__class__.__name__.replace("Agent", "").lower(),
-            "message"    : message,
-            "data"       : data or {},
-            "timestamp"  : datetime.now(timezone.utc).isoformat(),
+            "event_type"          : event,
+            "research_session_id" : self.research_session_id,
+            "generation"          : generation,
+            "depth"               : depth,
+            "agent"               : self.__class__.__name__.replace("Agent", "").lower(),
+            "message"             : message,
+            "data"                : data or {},
+            "timestamp"           : datetime.now(timezone.utc).isoformat(),
         }
         try:
             import redis.asyncio as aioredis
