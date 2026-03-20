@@ -78,7 +78,7 @@ class TrainerAgent(BaseAgent):
             result = await asyncio.get_event_loop().run_in_executor(
                 None,
                 self._run_training_script,
-                code, str(checkpoint), arch_name, param_count,
+                code, str(checkpoint), arch_name, candidate.get("param_count", 0),
             )
             results.append(result)
 

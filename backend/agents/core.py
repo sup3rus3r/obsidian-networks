@@ -97,12 +97,27 @@ class BaseAgent(ABC):
         if self._anthropic is None:
             self._anthropic = AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
         model = self.base_model or os.environ.get("AI_MODEL") or "claude-sonnet-4-6"
-        response = await self._anthropic.messages.create(
-            model=model,
-            max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return response.content[0].text
+
+        # Retry on 529 overloaded with exponential backoff (max 4 attempts)
+        import asyncio as _asyncio
+        from anthropic import OverloadedError as _OverloadedError
+        delays = [5, 15, 30]
+        for attempt, delay in enumerate(delays + [None]):
+            try:
+                response = await self._anthropic.messages.create(
+                    model=model,
+                    max_tokens=max_tokens,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                return response.content[0].text
+            except _OverloadedError:
+                if delay is None:
+                    raise
+                self.logger.warning(
+                    "Anthropic API overloaded (attempt %d/%d), retrying in %ds…",
+                    attempt + 1, len(delays) + 1, delay,
+                )
+                await _asyncio.sleep(delay)
 
     async def _call_local(self, prompt: str) -> str:
         async with httpx.AsyncClient(timeout=60.0) as client:
