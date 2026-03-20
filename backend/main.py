@@ -9,6 +9,26 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+# ── Dependency guard — ensure numpy<2.0 before TensorFlow loads ──────────────
+import subprocess, sys as _sys, logging as _logging
+def _ensure_compatible_numpy():
+    try:
+        import numpy as _np
+        if tuple(int(x) for x in _np.__version__.split(".")[:2]) >= (2, 0):
+            _logging.getLogger(__name__).warning(
+                "NumPy %s is incompatible with TensorFlow. Auto-fixing…", _np.__version__
+            )
+            subprocess.check_call(
+                [_sys.executable, "-m", "pip", "install",
+                 "numpy>=1.26,<2.0", "ml_dtypes>=0.3.1,<0.4.0",
+                 "--quiet", "--disable-pip-version-check"],
+                stdout=subprocess.DEVNULL,
+            )
+    except Exception as e:
+        _logging.getLogger(__name__).warning("NumPy compatibility check failed: %s", e)
+_ensure_compatible_numpy()
+# ─────────────────────────────────────────────────────────────────────────────
+
 import asyncio
 from contextlib import asynccontextmanager
 from routers.platform import router as platform_router
