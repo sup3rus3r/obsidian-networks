@@ -29,14 +29,24 @@ EDITOR_SYSTEM = (
     TF_CODE_SYSTEM
     + """
 
-EDITING RULES — you are improving an existing script, not rewriting it:
+EDITING RULES — you are pushing this architecture into unexplored territory:
 - Use read_code first to understand the full current state of the code.
 - Make TARGETED, SURGICAL edits via str_replace. Do not rewrite entire functions unless necessary.
 - Each str_replace must use an exact substring that appears in the current code (including whitespace).
 - After edits, use validate_syntax to confirm the code is still valid Python.
 - If validate_syntax reports an error, fix it before calling finish.
-- Call finish when all mechanisms are implemented and the code is valid.
+- Call finish when all changes are in place and the code is valid.
 - Maximum 12 tool-use turns before the loop exits automatically.
+
+NOVELTY RULES (critical):
+- Your goal is NOT to implement what existing papers describe. The mechanisms provided are hypotheses — \
+open questions derived from reading the literature, not solutions from it.
+- Do NOT reproduce standard patterns (vanilla attention, plain residuals, stock batch norm). \
+If the existing code already uses these, REPLACE them with something genuinely new.
+- Combine the provided mathematical ideas in ways that no published paper has tried. \
+The value is in the untested combination, not in faithful reproduction.
+- A working implementation of an untested idea is worth far more than a clean \
+reimplementation of a known one.
 """
 )
 

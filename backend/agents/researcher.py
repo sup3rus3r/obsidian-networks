@@ -220,17 +220,23 @@ Select the 3-4 most relevant by index. Return ONLY a JSON array of integers, e.g
         )
         goal_line = f"\nResearch goal: {task_description}" if task_description else ""
         prompt = f"""
-You are an expert {domain} ML researcher.{goal_line}
+You are an expert {domain} ML researcher with a focus on discovering what has NOT yet been tried.{goal_line}
 
-Read these paper abstracts and extract insights specifically relevant to the research goal above:
-1. Key architectural innovations
-2. Novel training techniques
-3. Benchmark results and what they imply
-4. Concrete mechanisms that could be applied to new architectures to achieve the goal
+Read these paper abstracts. Your job is NOT to summarise what these papers did — it is to identify \
+what their findings make plausible that nobody has built yet.
+
+For each key idea in the papers, ask: what does this make possible that remains unexplored?
+
+Extract:
+1. The underlying mathematical principle behind each innovation (not just the technique itself)
+2. Gaps and open questions the authors left unaddressed
+3. Combinations across these papers that no single paper explored
+4. What benchmark results imply about the design space that is still uncovered
 
 Papers:
 {abstracts}
 
-Write a concise 3-5 paragraph research summary focused on actionable insights for architecture design toward the stated goal.
+Write a concise 3-5 paragraph summary focused on UNEXPLORED directions that follow logically from \
+this work — not on what was already built, but on what this research makes newly worth trying.
 """
         return await self.call_llm(prompt, force_claude=True, max_tokens=1500)

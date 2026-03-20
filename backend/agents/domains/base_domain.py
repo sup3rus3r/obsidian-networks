@@ -83,9 +83,18 @@ samples — smaller models train faster and generalize better on limited data.
 # Shared system prompt for propose_mutations / generate_mechanism calls.
 # Shorter — caching benefit is secondary here but still applied.
 MUTATION_SYSTEM = """\
-You are a neural architecture search expert. Your task is to propose \
-meaningful architectural mutations that incorporate novel mechanisms into \
-existing base architectures. Output ONLY valid JSON — no prose, no markdown.
+You are a neural architecture research scientist focused on genuine novelty. \
+Your task is to propose architectural mutations that push into unexplored territory — \
+combinations and ideas that do not yet exist in the literature. Output ONLY valid JSON — no prose, no markdown.
+
+Novelty rules (critical):
+- Do NOT reproduce architectures that already exist (no vanilla Transformer, ResNet, LSTM, etc.).
+- Do NOT simply stack well-known components. Propose genuinely new structural ideas.
+- Use mathematical mechanisms as INSPIRATION — combine, invert, or reframe them in ways \
+the original authors did not explore.
+- Each mutation should represent a hypothesis about something unknown: \
+"what if we combined X principle with Y structure in this specific way?"
+- The rationale must explain WHY this combination is unexplored and what new behaviour it might produce.
 
 JSON output rules:
 - Return a valid JSON array.
@@ -93,18 +102,25 @@ JSON output rules:
 - No trailing commas.
 - architecture_name: descriptive snake_case identifier for the mutated architecture.
 - mutations: list of operator names from the provided operator set.
-- rationale: one sentence tying the mutation to a specific mechanism.
+- rationale: one sentence stating the novel hypothesis being tested.
 """
 
 MECHANISM_SYSTEM = """\
-You are an expert ML researcher. Your task is to derive novel mathematical \
-mechanisms from research insights that can be applied to neural architecture \
-design. Output ONLY valid JSON — no prose, no markdown.
+You are a research scientist specialising in novel mathematical mechanisms for neural networks. \
+Your task is NOT to summarise what the papers did — it is to derive NEW mechanisms that the \
+papers did not explore but that their findings make plausible. Output ONLY valid JSON — no prose, no markdown.
+
+Novelty rules (critical):
+- Do NOT return mechanisms that are already standard (attention, residuals, batch norm, etc.).
+- Use the research as a springboard: identify the underlying mathematical principle, \
+then ask "what has not been tried yet that follows from this principle?"
+- Propose mechanisms that combine ideas across papers in ways no single paper describes.
+- Each mechanism should represent a genuine open question in the design space.
 
 JSON output rules:
 - Return a valid JSON array of mechanism objects.
 - name: short snake_case identifier.
-- description: one sentence explaining the mechanism and why it helps.
+- description: one sentence explaining the novel hypothesis and why it is unexplored.
 - sympy_expression: a valid mathematical expression in sympy syntax \
 representing the core computation.
 """
@@ -244,9 +260,11 @@ class BaseDomain(ABC):
                     line += f"\n    Math: {m['sympy_expression']}"
                 mech_lines.append(line)
             parts.append(
-                "Mathematical mechanisms derived from research papers — implement these in the code:\n"
+                "Novel mathematical hypotheses to explore — these are OPEN QUESTIONS, not recipes:\n"
                 + "\n".join(mech_lines)
-                + "\n\nDo NOT just reflect these in comments. Actually implement the specific "
-                "mathematical operations described above where architecturally appropriate."
+                + "\n\nIMPORTANT: Do NOT simply copy these expressions into the code. "
+                "Use them as the mathematical foundation for something new — adapt, combine, "
+                "or extend them in ways that have not appeared in any published paper. "
+                "The goal is a working implementation of an untested idea, not a reimplementation of a known one."
             )
         return "\n\n".join(parts)
