@@ -81,7 +81,7 @@ export function CandidateList({ researchId, polling }: CandidateListProps) {
           <summary className="cursor-pointer list-none">
             <div className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/30 px-3 py-2 text-xs text-zinc-600 hover:text-zinc-400 transition-colors">
               <span className="flex-1">
-                {discarded.length} discarded candidate{discarded.length !== 1 ? 's' : ''} (score ≤ 50%)
+                {discarded.length} discarded candidate{discarded.length !== 1 ? 's' : ''} (score ≤ 25%)
               </span>
               <span className="group-open:rotate-90 transition-transform">›</span>
             </div>
