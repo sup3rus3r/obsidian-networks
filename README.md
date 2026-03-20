@@ -104,7 +104,9 @@ You set a domain (vision, text, audio, time series, graph, multimodal, tabular, 
 
 After each generation, the top-scoring candidates seed the next one — the Architect prioritises their base templates and the Mathematician derives new mechanisms to push them further. Candidates that scored poorly are recorded as **failure patterns** (name, mutations tried, score, reason) and passed forward so the Architect never repeats the same dead ends.
 
-If a generation produces no candidates worth recursing on, the session does not stop. Instead it runs fresh exploration — clearing the previous winner context, exploring new base architectures — and continues until it reaches the generation limit you set. You control both the number of candidates per generation and the maximum number of generations, either via slider (up to 20) or by typing any number directly.
+If a generation produces no candidates worth recursing on, the session does not start from scratch. Instead it seeds the next generation from the best candidate found so far — even if it scored poorly — so the Architect continues building on that structural direction rather than exploring blind. The Researcher fetches fresh papers and the Mathematician derives new mechanisms, giving the architecture a new mathematical angle without losing the progress already made.
+
+After three consecutive generations without a strong candidate, the session pauses and asks you whether to keep going or stop. If you continue, the failure counter resets and exploration resumes with the same best-so-far seed. If you stop, the session closes and you keep whatever was found. You control both the number of candidates per generation and the maximum number of generations, either via slider (up to 20) or by typing any number directly.
 
 ### Research Lineage
 
