@@ -82,6 +82,8 @@ class CoderAgent(BaseAgent):
                 "param_count"      : param_count,
                 "spec"             : arch_spec,
                 "base_template"    : proposal.get("base_template", ""),
+                "mutations"        : proposal.get("mutations", []),
+                "rationale"        : proposal.get("rationale", ""),
             }
 
         except Exception as e:

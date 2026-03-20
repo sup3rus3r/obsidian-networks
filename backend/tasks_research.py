@@ -78,7 +78,7 @@ async def _update_mongo_session(research_id: str, updates: dict):
         logger.warning("MongoDB update failed: %s", e)
 
 
-async def _save_candidates(research_id: str, scored_candidates: list[dict], generated_code: list[dict]):
+async def _save_candidates(research_id: str, scored_candidates: list[dict], generated_code: list[dict], generation: int = 0):
     """Upsert scored candidates into MongoDB."""
     try:
         from motor.motor_asyncio import AsyncIOMotorClient
@@ -87,14 +87,16 @@ async def _save_candidates(research_id: str, scored_candidates: list[dict], gene
         client = AsyncIOMotorClient(mongo_url)
         db = client[db_name]
 
-        # Build code lookup
-        code_map = {g["architecture_name"]: g.get("code", "") for g in generated_code}
+        # Build full code/metadata lookup
+        code_meta = {g["architecture_name"]: g for g in generated_code}
 
         for candidate in scored_candidates:
             arch = candidate["architecture_name"]
+            meta = code_meta.get(arch, {})
             doc  = {
                 "research_session_id": research_id,
                 "architecture_name"  : arch,
+                "generation"         : generation,
                 "composite_score"    : candidate.get("composite_score", 0),
                 "novelty_score"      : candidate.get("novelty_score", 0),
                 "efficiency_score"   : candidate.get("efficiency_score", 0),
@@ -106,7 +108,10 @@ async def _save_candidates(research_id: str, scored_candidates: list[dict], gene
                 "memory_mb"          : candidate.get("memory_mb", 0),
                 "inference_time_ms"  : candidate.get("inference_time_ms", 0),
                 "param_count"        : candidate.get("param_count", 0),
-                "code"               : code_map.get(arch, ""),
+                "code"               : meta.get("code", ""),
+                "base_template"      : meta.get("base_template", ""),
+                "mutations"          : meta.get("mutations", []),
+                "rationale"          : meta.get("rationale", ""),
                 "updated_at"         : _now_iso(),
             }
             await db["research_candidates"].update_one(
@@ -265,7 +270,7 @@ def run_research_generation(self, research_session_id: str, context: dict):
             gen_code   = ctx.get("generated_code", [])
             to_recurse = ctx.get("candidates_to_recurse", [])
 
-            await _save_candidates(research_id, scored, gen_code)
+            await _save_candidates(research_id, scored, gen_code, generation=generation)
             await _update_mongo_session(research_id, {
                 "status"           : "running",
                 "generation"       : generation,

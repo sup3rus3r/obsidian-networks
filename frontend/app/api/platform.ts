@@ -196,6 +196,10 @@ export interface ResearchCandidate {
   memory_mb           : number
   inference_time_ms   : number
   param_count         : number
+  generation         ?: number
+  base_template      ?: string
+  mutations          ?: string[]
+  rationale          ?: string
   code               ?: string
 }
 

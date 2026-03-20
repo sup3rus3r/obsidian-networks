@@ -84,6 +84,7 @@ class EvaluatorAgent(BaseAgent):
                 "memory_mb"        : 0.0,
                 "inference_time_ms": 9999.0,
                 "param_count"      : training_result.get("param_count", 0),
+                "training_time_s"  : training_result.get("training_time_s", 9999.0),
                 "status"           : "no_checkpoint",
             }
 

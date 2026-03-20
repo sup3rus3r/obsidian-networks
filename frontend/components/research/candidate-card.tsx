@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import {
   Download, ChevronDown, ChevronUp,
   Zap, Brain, Sparkles, Shield, BarChart3,
-  Cpu, Timer, Layers, Loader2,
+  Cpu, Timer, Layers, Loader2, Info, GitBranch,
 } from 'lucide-react'
 
 const ACTION_COLORS: Record<string, string> = {
@@ -57,8 +57,9 @@ interface CandidateCardProps {
 }
 
 export function CandidateCard({ candidate, researchId, rank }: CandidateCardProps) {
-  const [expanded,    setExpanded]    = useState(rank === 0)  // top candidate open by default
-  const [downloading, setDownloading] = useState(false)
+  const [expanded,     setExpanded]     = useState(rank === 0)
+  const [showAbout,    setShowAbout]    = useState(false)
+  const [downloading,  setDownloading]  = useState(false)
 
   const actionClass = ACTION_COLORS[candidate.next_action] ?? ACTION_COLORS.discard
   const score       = Math.round(candidate.composite_score * 100)
@@ -129,6 +130,59 @@ export function CandidateCard({ candidate, researchId, rank }: CandidateCardProp
       {/* Expanded detail */}
       {expanded && (
         <div className="border-t border-zinc-800 px-4 py-3 space-y-4">
+
+          {/* About this architecture — toggleable */}
+          {(candidate.rationale || (candidate.mutations && candidate.mutations.length > 0)) && (
+            <div>
+              <button
+                onClick={() => setShowAbout(x => !x)}
+                className="cursor-pointer flex w-full items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                <Info className="h-3 w-3" />
+                About this architecture
+                <ChevronDown className={`ml-auto h-3 w-3 transition-transform ${showAbout ? 'rotate-180' : ''}`} />
+              </button>
+
+              {showAbout && (
+                <div className="mt-2 rounded border border-zinc-700/50 bg-zinc-900/60 px-3 py-2.5 space-y-2.5">
+                  {candidate.base_template && (
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-600">Base architecture</p>
+                      <p className="mt-0.5 font-mono text-xs text-zinc-300">{candidate.base_template}</p>
+                    </div>
+                  )}
+
+                  {candidate.mutations && candidate.mutations.length > 0 && (
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-600">Mutations applied</p>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {candidate.mutations.map(m => (
+                          <span key={m} className="flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">
+                            <GitBranch className="h-2.5 w-2.5 text-zinc-500" />
+                            {m.replace(/_/g, ' ')}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {candidate.rationale && (
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-600">Rationale</p>
+                      <p className="mt-0.5 text-xs leading-relaxed text-zinc-400">{candidate.rationale}</p>
+                    </div>
+                  )}
+
+                  {candidate.generation !== undefined && (
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-600">Discovered in</p>
+                      <p className="mt-0.5 text-xs text-zinc-400">Generation {candidate.generation}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Score breakdown */}
           <div className="space-y-2">

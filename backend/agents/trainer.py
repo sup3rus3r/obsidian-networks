@@ -78,13 +78,13 @@ class TrainerAgent(BaseAgent):
             result = await asyncio.get_event_loop().run_in_executor(
                 None,
                 self._run_training_script,
-                code, str(checkpoint), arch_name,
+                code, str(checkpoint), arch_name, param_count,
             )
             results.append(result)
 
         return results
 
-    def _run_training_script(self, code: str, checkpoint_path: str, arch_name: str) -> dict:
+    def _run_training_script(self, code: str, checkpoint_path: str, arch_name: str, param_count: int = 0) -> dict:
         """Execute training code in a subprocess-like isolated exec with timeout."""
         import subprocess, sys, tempfile, json as _json
 
@@ -114,6 +114,7 @@ class TrainerAgent(BaseAgent):
                     "accuracy"          : None,
                     "checkpoint_path"   : checkpoint_path,
                     "training_time_s"   : elapsed,
+                    "param_count"       : param_count,
                     "training_location" : "local",
                     "status"            : "completed",
                     "stdout"            : proc.stdout[-500:],
@@ -124,6 +125,7 @@ class TrainerAgent(BaseAgent):
                     "final_loss"        : 999.0,
                     "checkpoint_path"   : checkpoint_path,
                     "training_time_s"   : elapsed,
+                    "param_count"       : param_count,
                     "training_location" : "local",
                     "status"            : "failed",
                     "error"             : proc.stderr[-500:],
@@ -133,6 +135,7 @@ class TrainerAgent(BaseAgent):
                 "architecture_name": arch_name,
                 "final_loss"       : 999.0,
                 "training_time_s"  : 300.0,
+                "param_count"      : param_count,
                 "training_location": "local",
                 "status"           : "timeout",
                 "error"            : "Training exceeded 5-minute limit",
@@ -141,6 +144,7 @@ class TrainerAgent(BaseAgent):
             return {
                 "architecture_name": arch_name,
                 "final_loss"       : 999.0,
+                "param_count"      : param_count,
                 "training_location": "local",
                 "status"           : "error",
                 "error"            : str(e),
@@ -158,10 +162,13 @@ class TrainerAgent(BaseAgent):
         output_dir = str(Path(checkpoint_path).parent)
         code = f"import os; os.makedirs('{output_dir}', exist_ok=True)\n" + code
 
-        # Replace save paths
-        code = code.replace("output/model.keras", checkpoint_path)
-        code = code.replace("'output/model.keras'", f"'{checkpoint_path}'")
-        code = code.replace('"output/model.keras"', f'"{checkpoint_path}"')
+        # Replace ALL output/*.keras and output/*.h5 save paths — not just the
+        # literal 'output/model.keras' — so any model name the LLM chose gets
+        # redirected to the canonical checkpoint path the evaluator expects.
+        code = re.sub(r"'output/[^']*\.keras'", f"'{checkpoint_path}'", code)
+        code = re.sub(r'"output/[^"]*\.keras"', f'"{checkpoint_path}"', code)
+        code = re.sub(r"'output/[^']*\.h5'",    f"'{checkpoint_path}'", code)
+        code = re.sub(r'"output/[^"]*\.h5"',    f'"{checkpoint_path}"', code)
 
         # Cap epochs
         code = re.sub(r'epochs\s*=\s*\d+', f'epochs={TOY_EPOCHS}', code)

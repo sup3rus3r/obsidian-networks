@@ -79,6 +79,11 @@ class CriticAgent(BaseAgent):
         else:
             context["previous_winner_arch"] = None
             context["previous_winner_base_arch"] = None
+
+        # Update FAISS novelty index with the specs of all scored candidates so
+        # future generations can compute real embedding distances instead of defaulting to 0.8.
+        await self._update_novelty_index(scored_candidates, code_lookup)
+
         return context
 
     async def _score_candidate(
@@ -140,6 +145,47 @@ class CriticAgent(BaseAgent):
             "inference_time_ms"          : inference_ms,
             "param_count"                : param_count,
         }
+
+    async def _update_novelty_index(self, scored_candidates: list[dict], code_lookup: dict) -> None:
+        """Add the specs of all scored candidates to the FAISS novelty index.
+
+        This ensures future generations compute real embedding distances rather
+        than always defaulting to 0.8 (the 'no index yet' fallback).
+        """
+        try:
+            import faiss
+            import numpy as np
+            import os
+            from pathlib import Path
+            from sentence_transformers import SentenceTransformer
+
+            index_path = Path(os.environ.get("RESEARCH_ARTIFACTS_DIR", "/research_artifacts")) / "novelty_index.faiss"
+            index_path.parent.mkdir(parents=True, exist_ok=True)
+
+            model = SentenceTransformer("all-MiniLM-L6-v2")
+
+            texts = []
+            for c in scored_candidates:
+                spec = code_lookup.get(c["architecture_name"], {}).get("spec", {})
+                texts.append(json.dumps(spec) if spec else c["architecture_name"])
+
+            if not texts:
+                return
+
+            vecs = model.encode(texts, normalize_embeddings=True).astype("float32")
+            dim  = vecs.shape[1]
+
+            if index_path.exists():
+                index = faiss.read_index(str(index_path))
+            else:
+                index = faiss.IndexFlatL2(dim)
+
+            index.add(vecs)
+            faiss.write_index(index, str(index_path))
+            logger.info("Novelty index updated: %d total vectors", index.ntotal)
+
+        except Exception as e:
+            logger.warning("Failed to update novelty index: %s", e)
 
     async def _compute_novelty(self, arch_name: str, spec: dict) -> float:
         """
