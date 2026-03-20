@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { getResearchCandidates, type ResearchCandidate } from '@/app/api/platform'
 import { CandidateCard } from './candidate-card'
 import { Loader2, Trophy } from 'lucide-react'
@@ -21,6 +21,8 @@ export function CandidateList({ researchId, polling }: CandidateListProps) {
     setLoading(false)
   }, [researchId])
 
+  const prevPollingRef = useRef(polling)
+
   // Initial load
   useEffect(() => { load() }, [load])
 
@@ -29,6 +31,15 @@ export function CandidateList({ researchId, polling }: CandidateListProps) {
     if (!polling) return
     const id = setInterval(load, 10_000)
     return () => clearInterval(id)
+  }, [polling, load])
+
+  // Final fetch when polling stops (session just completed) to avoid race condition
+  // where the last poll happened before candidates were written to MongoDB
+  useEffect(() => {
+    if (prevPollingRef.current && !polling) {
+      load()
+    }
+    prevPollingRef.current = polling
   }, [polling, load])
 
   if (loading) {
