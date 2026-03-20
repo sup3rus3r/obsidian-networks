@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from .base_domain import BaseDomain
+from .base_domain import BaseDomain, TF_CODE_SYSTEM, MUTATION_SYSTEM, MECHANISM_SYSTEM
 
 
 class LanguageDomain(BaseDomain):
@@ -52,19 +52,9 @@ class LanguageDomain(BaseDomain):
     }
 
     async def generate_mechanism(self, research_insights: str, llm_caller: Callable) -> list[dict]:
-        prompt = f"""
-You are an NLP researcher. Based on these research insights:
-
-{research_insights}
-
-Derive 3 novel mechanisms for language models. For each provide:
-- name (snake_case)
-- description
-- sympy_expression (key math operation)
-
-JSON array only:
-"""
-        raw = await llm_caller(prompt, force_claude=True, max_tokens=1200)
+        system = MECHANISM_SYSTEM + "\nDomain: NLP / language modeling (Transformers, LSTMs, text classification)."
+        prompt = f"Research insights:\n{research_insights}\n\nDerive 3 novel mechanisms for language models. JSON array:"
+        raw = await llm_caller(prompt, system=system, force_claude=True, max_tokens=1200)
         try:
             start = raw.find("["); end = raw.rfind("]") + 1
             return json.loads(raw[start:end])
@@ -73,13 +63,9 @@ JSON array only:
 
     async def propose_mutations(self, base_arch: str, mechanisms: list[dict], llm_caller: Callable) -> list[dict]:
         template = self.get_base_template(base_arch)
-        prompt   = f"""
-Language model architecture: {json.dumps(template, indent=2)}
-Mechanisms: {json.dumps(mechanisms, indent=2)}
-Propose 3 mutations. Operators available: {self.mutation_operators}
-JSON array: [{{"architecture_name": str, "mutations": [str], "rationale": str}}]
-"""
-        raw = await llm_caller(prompt, force_claude=True, max_tokens=1200)
+        system   = MUTATION_SYSTEM + f"\nDomain: language models. Available operators: {self.mutation_operators}."
+        prompt   = f"Base architecture:\n{json.dumps(template, indent=2)}\n\nMechanisms:\n{json.dumps(mechanisms, indent=2)}\n\nPropose 3 mutations. JSON array:"
+        raw = await llm_caller(prompt, system=system, force_claude=True, max_tokens=1200)
         try:
             start = raw.find("["); end = raw.rfind("]") + 1
             proposals = json.loads(raw[start:end])
@@ -87,39 +73,26 @@ JSON array: [{{"architecture_name": str, "mutations": [str], "rationale": str}}]
             proposals = [{"architecture_name": f"{base_arch}_mutant", "mutations": ["attention_variant", "depth_change"], "rationale": "Default"}]
 
         from agents.mutations import apply_mutations
-        results = []
-        for p in proposals:
-            spec = apply_mutations(template, p.get("mutations", []))
-            results.append({
-                "architecture_name": p.get("architecture_name", f"{base_arch}_mutant"),
-                "base_template"    : base_arch,
-                "mutations"        : p.get("mutations", []),
-                "spec"             : spec,
-                "rationale"        : p.get("rationale", ""),
-            })
-        return results
+        return [{
+            "architecture_name": p.get("architecture_name", f"{base_arch}_mutant"),
+            "base_template"    : base_arch,
+            "mutations"        : p.get("mutations", []),
+            "spec"             : apply_mutations(template, p.get("mutations", [])),
+            "rationale"        : p.get("rationale", ""),
+        } for p in proposals]
 
     async def generate_code(self, arch_spec: dict, llm_caller: Callable) -> str:
-        prompt = f"""
-Write a complete TensorFlow/Keras training script for this language architecture:
-
-{json.dumps(arch_spec, indent=2)}
-
-Requirements:
-- Use functional API
-- Generate synthetic token data: np.random.randint(1, 10000, (1000, 128))
-- Generate synthetic labels: np.random.randint(0, 5, (1000,))
-- Train for 5 epochs with Adam
-- Save to output/model.keras
-- Imports: tensorflow, numpy only
-
-Return ONLY Python code.
-"""
-        code = await llm_caller(prompt, force_claude=True, max_tokens=3000)
-        if "```python" in code:
-            code = code.split("```python")[1].split("```")[0]
-        elif "```" in code:
-            code = code.split("```")[1].split("```")[0]
+        system = (
+            TF_CODE_SYSTEM +
+            "\nDOMAIN: Language / NLP (text classification)."
+            "\nSYNTHETIC DATA: X = np.random.randint(1, 10000, (1000, 128)).astype(np.int32); "
+            "y = np.random.randint(0, 5, (1000,)).astype(np.int32)"
+            "\nLOSS: sparse_categorical_crossentropy. METRICS: accuracy. EPOCHS: 5."
+        )
+        prompt = f"Architecture spec to implement:\n{json.dumps(arch_spec, indent=2)}"
+        code = await llm_caller(prompt, system=system, force_claude=True, max_tokens=3000)
+        if "```python" in code: code = code.split("```python")[1].split("```")[0]
+        elif "```" in code:     code = code.split("```")[1].split("```")[0]
         return code.strip()
 
     def generate_synthetic_data(self, size: int = 1000, params: dict | None = None) -> Any:

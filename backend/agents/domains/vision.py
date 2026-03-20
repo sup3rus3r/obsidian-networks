@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from .base_domain import BaseDomain
+from .base_domain import BaseDomain, TF_CODE_SYSTEM, MUTATION_SYSTEM, MECHANISM_SYSTEM
 
 
 class VisionDomain(BaseDomain):
@@ -53,20 +53,9 @@ class VisionDomain(BaseDomain):
     }
 
     async def generate_mechanism(self, research_insights: str, llm_caller: Callable) -> list[dict]:
-        prompt = f"""
-You are a computer vision researcher. Based on these research insights:
-
-{research_insights}
-
-Derive 3 novel architectural mechanisms for image models. For each mechanism provide:
-1. name: short identifier (snake_case)
-2. description: what it does and why it helps
-3. sympy_expression: a mathematical expression describing the key operation (use sympy syntax)
-
-Respond with a JSON array only. Example:
-[{{"name": "adaptive_pooling", "description": "Pool features adaptively based on spatial variance", "sympy_expression": "pool(x, sigma(x))"}}]
-"""
-        raw = await llm_caller(prompt, force_claude=True, max_tokens=1500)
+        system = MECHANISM_SYSTEM + "\nDomain: computer vision (CNNs, ViTs, image classification/detection)."
+        prompt = f"Research insights:\n{research_insights}\n\nDerive 3 novel mechanisms for image models. JSON array:"
+        raw = await llm_caller(prompt, system=system, force_claude=True, max_tokens=1500)
         try:
             start = raw.find("[")
             end   = raw.rfind("]") + 1
@@ -76,23 +65,9 @@ Respond with a JSON array only. Example:
 
     async def propose_mutations(self, base_arch: str, mechanisms: list[dict], llm_caller: Callable) -> list[dict]:
         template = self.get_base_template(base_arch)
-        prompt   = f"""
-You are a neural architecture search expert for computer vision.
-
-Base architecture: {json.dumps(template, indent=2)}
-
-Novel mechanisms discovered:
-{json.dumps(mechanisms, indent=2)}
-
-Propose 3 architecture mutations that incorporate these mechanisms. Each mutation should:
-- Have a unique descriptive name
-- List which mutation operators to apply (from: {self.mutation_operators})
-- Include rationale tied to a specific mechanism
-
-Respond with JSON array only:
-[{{"architecture_name": "cnn_adaptive_attention", "mutations": ["attention_variant", "skip_connection_add"], "rationale": "Adds attention weighted by mechanism..."}}]
-"""
-        raw = await llm_caller(prompt, force_claude=True, max_tokens=1500)
+        system   = MUTATION_SYSTEM + f"\nDomain: computer vision. Available operators: {self.mutation_operators}."
+        prompt   = f"Base architecture:\n{json.dumps(template, indent=2)}\n\nMechanisms:\n{json.dumps(mechanisms, indent=2)}\n\nPropose 3 mutations. JSON array:"
+        raw = await llm_caller(prompt, system=system, force_claude=True, max_tokens=1500)
         try:
             start = raw.find("[")
             end   = raw.rfind("]") + 1
@@ -100,44 +75,27 @@ Respond with JSON array only:
         except Exception:
             proposals = [{"architecture_name": f"{base_arch}_mutant_1", "mutations": ["skip_connection_add", "attention_variant"], "rationale": "Default mutation"}]
 
-        # Apply mutations to produce actual specs
-        from agents.mutations import apply_mutations, random_mutations
-        results = []
-        for p in proposals:
-            spec = apply_mutations(template, p.get("mutations", []))
-            results.append({
-                "architecture_name": p.get("architecture_name", f"{base_arch}_mutant"),
-                "base_template"    : base_arch,
-                "mutations"        : p.get("mutations", []),
-                "spec"             : spec,
-                "rationale"        : p.get("rationale", ""),
-            })
-        return results
+        from agents.mutations import apply_mutations
+        return [{
+            "architecture_name": p.get("architecture_name", f"{base_arch}_mutant"),
+            "base_template"    : base_arch,
+            "mutations"        : p.get("mutations", []),
+            "spec"             : apply_mutations(template, p.get("mutations", [])),
+            "rationale"        : p.get("rationale", ""),
+        } for p in proposals]
 
     async def generate_code(self, arch_spec: dict, llm_caller: Callable) -> str:
-        prompt = f"""
-Write a complete, self-contained TensorFlow/Keras training script for this vision architecture:
-
-{json.dumps(arch_spec, indent=2)}
-
-Requirements:
-- Use tensorflow.keras functional API
-- Generate synthetic image data: tf.random.normal(shape=(1000, 32, 32, 3))
-- Generate synthetic labels: tf.random.uniform(shape=(1000,), minval=0, maxval=10, dtype=tf.int32)
-- Train for 5 epochs with Adam optimizer
-- Save model to output/model.keras
-- Print final training accuracy
-- Use ONLY tensorflow, numpy imports
-- No matplotlib, no real datasets
-
-Return ONLY the Python code, no explanation.
-"""
-        code = await llm_caller(prompt, force_claude=True, max_tokens=3000)
-        # Strip markdown fences if present
-        if "```python" in code:
-            code = code.split("```python")[1].split("```")[0]
-        elif "```" in code:
-            code = code.split("```")[1].split("```")[0]
+        system = (
+            TF_CODE_SYSTEM +
+            "\nDOMAIN: Vision classification (images)."
+            "\nSYNTHETIC DATA: X = tf.random.normal(shape=(1000,32,32,3)); "
+            "y = tf.random.uniform(shape=(1000,), minval=0, maxval=10, dtype=tf.int32)"
+            "\nLOSS: sparse_categorical_crossentropy. METRICS: accuracy. EPOCHS: 5."
+        )
+        prompt = f"Architecture spec to implement:\n{json.dumps(arch_spec, indent=2)}"
+        code = await llm_caller(prompt, system=system, force_claude=True, max_tokens=3000)
+        if "```python" in code: code = code.split("```python")[1].split("```")[0]
+        elif "```" in code:     code = code.split("```")[1].split("```")[0]
         return code.strip()
 
     def generate_synthetic_data(self, size: int = 1000, params: dict | None = None) -> Any:

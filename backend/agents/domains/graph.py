@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from .base_domain import BaseDomain
+from .base_domain import BaseDomain, TF_CODE_SYSTEM, MUTATION_SYSTEM, MECHANISM_SYSTEM
 
 
 class GraphDomain(BaseDomain):
@@ -46,15 +46,9 @@ class GraphDomain(BaseDomain):
     }
 
     async def generate_mechanism(self, research_insights: str, llm_caller: Callable) -> list[dict]:
-        prompt = f"""
-You are a graph neural network researcher. Based on:
-
-{research_insights}
-
-Derive 3 novel mechanisms for GNNs.
-JSON array: [{{"name": str, "description": str, "sympy_expression": str}}]
-"""
-        raw = await llm_caller(prompt, force_claude=True, max_tokens=1200)
+        system = MECHANISM_SYSTEM + "\nDomain: graph neural networks (GCN, GAT, GraphSAGE, node classification)."
+        prompt = f"Research insights:\n{research_insights}\n\nDerive 3 novel mechanisms for GNNs. JSON array:"
+        raw = await llm_caller(prompt, system=system, force_claude=True, max_tokens=1200)
         try:
             start = raw.find("["); end = raw.rfind("]") + 1
             return json.loads(raw[start:end])
@@ -63,13 +57,9 @@ JSON array: [{{"name": str, "description": str, "sympy_expression": str}}]
 
     async def propose_mutations(self, base_arch: str, mechanisms: list[dict], llm_caller: Callable) -> list[dict]:
         template = self.get_base_template(base_arch)
-        prompt   = f"""
-GNN architecture: {json.dumps(template, indent=2)}
-Mechanisms: {json.dumps(mechanisms, indent=2)}
-Propose 3 mutations. Operators: {self.mutation_operators}
-JSON: [{{"architecture_name": str, "mutations": [str], "rationale": str}}]
-"""
-        raw = await llm_caller(prompt, force_claude=True, max_tokens=1200)
+        system   = MUTATION_SYSTEM + f"\nDomain: graph neural networks. Available operators: {self.mutation_operators}."
+        prompt   = f"Base architecture:\n{json.dumps(template, indent=2)}\n\nMechanisms:\n{json.dumps(mechanisms, indent=2)}\n\nPropose 3 mutations. JSON array:"
+        raw = await llm_caller(prompt, system=system, force_claude=True, max_tokens=1200)
         try:
             start = raw.find("["); end = raw.rfind("]") + 1
             proposals = json.loads(raw[start:end])
@@ -86,25 +76,19 @@ JSON: [{{"architecture_name": str, "mutations": [str], "rationale": str}}]
         } for p in proposals]
 
     async def generate_code(self, arch_spec: dict, llm_caller: Callable) -> str:
-        prompt = f"""
-Write a complete TensorFlow/Keras training script for this GNN architecture:
-
-{json.dumps(arch_spec, indent=2)}
-
-Requirements:
-- Since TF doesn't have native GNN layers, implement a simple message-passing GCN from scratch
-- Generate: node_features = np.random.randn(200, 16).astype(np.float32)
-- Generate: adj_matrix = (np.random.rand(200, 200) > 0.95).astype(np.float32) (sparse adjacency)
-- Labels: np.random.randint(0, 5, (200,))
-- Train 5 epochs, Adam, sparse_categorical_crossentropy
-- Save model to output/model.keras
-- tensorflow, numpy only
-
-Return ONLY Python code.
-"""
-        code = await llm_caller(prompt, force_claude=True, max_tokens=3000)
+        system = (
+            TF_CODE_SYSTEM +
+            "\nDOMAIN: Graph neural networks (node classification)."
+            "\nSYNTHETIC DATA: node_features = np.random.randn(200,16).astype(np.float32); "
+            "adj = (np.random.rand(200,200)>0.95).astype(np.float32); "
+            "labels = np.random.randint(0,5,(200,)).astype(np.int32). "
+            "TF has no native GNN layers — implement message-passing GCN from scratch using tf.matmul."
+            "\nLOSS: sparse_categorical_crossentropy. EPOCHS: 5."
+        )
+        prompt = f"Architecture spec to implement:\n{json.dumps(arch_spec, indent=2)}"
+        code = await llm_caller(prompt, system=system, force_claude=True, max_tokens=3000)
         if "```python" in code: code = code.split("```python")[1].split("```")[0]
-        elif "```" in code: code = code.split("```")[1].split("```")[0]
+        elif "```" in code:     code = code.split("```")[1].split("```")[0]
         return code.strip()
 
     def generate_synthetic_data(self, size: int = 200, params: dict | None = None) -> Any:

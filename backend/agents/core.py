@@ -56,6 +56,7 @@ class BaseAgent(ABC):
         cache_key: str | None = None,
         force_claude: bool = False,
         max_tokens: int = 2000,
+        system: str | None = None,
     ) -> str:
         """
         Route prompt to local Ollama or Claude API.
@@ -80,9 +81,9 @@ class BaseAgent(ABC):
                 result = await self._call_local(prompt)
             except Exception as e:
                 self.logger.warning("Ollama failed (%s), falling back to Claude.", e)
-                result = await self._call_claude(prompt, max_tokens=max_tokens)
+                result = await self._call_claude(prompt, max_tokens=max_tokens, system=system)
         else:
-            result = await self._call_claude(prompt, max_tokens=max_tokens)
+            result = await self._call_claude(prompt, max_tokens=max_tokens, system=system)
 
         if cache_key:
             self._llm_cache[cache_key] = result
@@ -93,25 +94,30 @@ class BaseAgent(ABC):
         lower = prompt.lower()
         return any(kw in lower for kw in _LOCAL_TASK_KEYWORDS)
 
-    async def _call_claude(self, prompt: str, max_tokens: int = 2000) -> str:
+    async def _call_claude(self, prompt: str, max_tokens: int = 2000, system: str | None = None) -> str:
         if self._anthropic is None:
             self._anthropic = AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
         model = self.base_model or os.environ.get("AI_MODEL") or "claude-sonnet-4-6"
 
         # Retry on 529 overloaded with exponential backoff (max 4 attempts)
         import asyncio as _asyncio
-        from anthropic import OverloadedError as _OverloadedError
+        from anthropic import APIStatusError as _APIStatusError
         delays = [5, 15, 30]
         for attempt, delay in enumerate(delays + [None]):
             try:
-                response = await self._anthropic.messages.create(
+                kwargs: dict = dict(
                     model=model,
                     max_tokens=max_tokens,
                     messages=[{"role": "user", "content": prompt}],
                 )
+                if system:
+                    # cache_control on system prompt — Anthropic caches the KV state
+                    # after this block for up to 5 min, saving tokens on repeated calls.
+                    kwargs["system"] = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+                response = await self._anthropic.messages.create(**kwargs)
                 return response.content[0].text
-            except _OverloadedError:
-                if delay is None:
+            except _APIStatusError as e:
+                if e.status_code != 529 or delay is None:
                     raise
                 self.logger.warning(
                     "Anthropic API overloaded (attempt %d/%d), retrying in %ds…",

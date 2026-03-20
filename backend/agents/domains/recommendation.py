@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from .base_domain import BaseDomain
+from .base_domain import BaseDomain, TF_CODE_SYSTEM, MUTATION_SYSTEM, MECHANISM_SYSTEM
 
 
 class RecommendationDomain(BaseDomain):
@@ -52,15 +52,9 @@ class RecommendationDomain(BaseDomain):
     }
 
     async def generate_mechanism(self, research_insights: str, llm_caller: Callable) -> list[dict]:
-        prompt = f"""
-You are a recommendation systems researcher. Based on:
-
-{research_insights}
-
-Derive 3 novel mechanisms for recommendation models.
-JSON array: [{{"name": str, "description": str, "sympy_expression": str}}]
-"""
-        raw = await llm_caller(prompt, force_claude=True, max_tokens=1200)
+        system = MECHANISM_SYSTEM + "\nDomain: recommendation systems (collaborative filtering, attention-based recommenders)."
+        prompt = f"Research insights:\n{research_insights}\n\nDerive 3 novel mechanisms for recommendation models. JSON array:"
+        raw = await llm_caller(prompt, system=system, force_claude=True, max_tokens=1200)
         try:
             start = raw.find("["); end = raw.rfind("]") + 1
             return json.loads(raw[start:end])
@@ -69,13 +63,9 @@ JSON array: [{{"name": str, "description": str, "sympy_expression": str}}]
 
     async def propose_mutations(self, base_arch: str, mechanisms: list[dict], llm_caller: Callable) -> list[dict]:
         template = self.get_base_template(base_arch)
-        prompt   = f"""
-Recommendation architecture: {json.dumps(template, indent=2)}
-Mechanisms: {json.dumps(mechanisms, indent=2)}
-Propose 3 mutations. Operators: {self.mutation_operators}
-JSON: [{{"architecture_name": str, "mutations": [str], "rationale": str}}]
-"""
-        raw = await llm_caller(prompt, force_claude=True, max_tokens=1200)
+        system   = MUTATION_SYSTEM + f"\nDomain: recommendation systems. Available operators: {self.mutation_operators}."
+        prompt   = f"Base architecture:\n{json.dumps(template, indent=2)}\n\nMechanisms:\n{json.dumps(mechanisms, indent=2)}\n\nPropose 3 mutations. JSON array:"
+        raw = await llm_caller(prompt, system=system, force_claude=True, max_tokens=1200)
         try:
             start = raw.find("["); end = raw.rfind("]") + 1
             proposals = json.loads(raw[start:end])
@@ -92,26 +82,19 @@ JSON: [{{"architecture_name": str, "mutations": [str], "rationale": str}}]
         } for p in proposals]
 
     async def generate_code(self, arch_spec: dict, llm_caller: Callable) -> str:
-        prompt = f"""
-Write a complete TensorFlow/Keras training script for this recommendation architecture:
-
-{json.dumps(arch_spec, indent=2)}
-
-Requirements:
-- n_users=500, n_items=1000, embed_dim=32
-- Generate sparse ratings: user_ids = np.random.randint(0, 500, 10000); item_ids = np.random.randint(0, 1000, 10000); ratings = np.random.uniform(1, 5, 10000).astype(np.float32)
-- Normalize ratings to [0,1]: ratings = (ratings - 1) / 4
-- Model: user Embedding + item Embedding → Dot → Dense(1, sigmoid)
-- Loss: MSE, optimizer: Adam
-- Train 10 epochs
-- Save to output/model.keras
-- tensorflow, numpy only
-
-Return ONLY Python code.
-"""
-        code = await llm_caller(prompt, force_claude=True, max_tokens=3000)
+        system = (
+            TF_CODE_SYSTEM +
+            "\nDOMAIN: Recommendation systems (collaborative filtering)."
+            "\nSYNTHETIC DATA: n_users=500, n_items=1000; "
+            "user_ids=np.random.randint(0,500,10000); item_ids=np.random.randint(0,1000,10000); "
+            "ratings=((np.random.uniform(1,5,10000)-1)/4).astype(np.float32). "
+            "User Embedding + Item Embedding → Dot → Dense(1,sigmoid)."
+            "\nLOSS: mse. EPOCHS: 10."
+        )
+        prompt = f"Architecture spec to implement:\n{json.dumps(arch_spec, indent=2)}"
+        code = await llm_caller(prompt, system=system, force_claude=True, max_tokens=3000)
         if "```python" in code: code = code.split("```python")[1].split("```")[0]
-        elif "```" in code: code = code.split("```")[1].split("```")[0]
+        elif "```" in code:     code = code.split("```")[1].split("```")[0]
         return code.strip()
 
     def generate_synthetic_data(self, size: int = 500, params: dict | None = None) -> Any:

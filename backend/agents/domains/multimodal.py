@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from .base_domain import BaseDomain
+from .base_domain import BaseDomain, TF_CODE_SYSTEM, MUTATION_SYSTEM, MECHANISM_SYSTEM
 
 
 class MultimodalDomain(BaseDomain):
@@ -55,15 +55,9 @@ class MultimodalDomain(BaseDomain):
     }
 
     async def generate_mechanism(self, research_insights: str, llm_caller: Callable) -> list[dict]:
-        prompt = f"""
-You are a multimodal AI researcher. Based on:
-
-{research_insights}
-
-Derive 3 novel mechanisms for image-text models.
-JSON array: [{{"name": str, "description": str, "sympy_expression": str}}]
-"""
-        raw = await llm_caller(prompt, force_claude=True, max_tokens=1200)
+        system = MECHANISM_SYSTEM + "\nDomain: multimodal AI (image-text contrastive learning, CLIP, cross-modal fusion)."
+        prompt = f"Research insights:\n{research_insights}\n\nDerive 3 novel mechanisms for image-text models. JSON array:"
+        raw = await llm_caller(prompt, system=system, force_claude=True, max_tokens=1200)
         try:
             start = raw.find("["); end = raw.rfind("]") + 1
             return json.loads(raw[start:end])
@@ -72,13 +66,9 @@ JSON array: [{{"name": str, "description": str, "sympy_expression": str}}]
 
     async def propose_mutations(self, base_arch: str, mechanisms: list[dict], llm_caller: Callable) -> list[dict]:
         template = self.get_base_template(base_arch)
-        prompt   = f"""
-Multimodal architecture: {json.dumps(template, indent=2)}
-Mechanisms: {json.dumps(mechanisms, indent=2)}
-Propose 3 mutations. Operators: {self.mutation_operators}
-JSON: [{{"architecture_name": str, "mutations": [str], "rationale": str}}]
-"""
-        raw = await llm_caller(prompt, force_claude=True, max_tokens=1200)
+        system   = MUTATION_SYSTEM + f"\nDomain: multimodal. Available operators: {self.mutation_operators}."
+        prompt   = f"Base architecture:\n{json.dumps(template, indent=2)}\n\nMechanisms:\n{json.dumps(mechanisms, indent=2)}\n\nPropose 3 mutations. JSON array:"
+        raw = await llm_caller(prompt, system=system, force_claude=True, max_tokens=1200)
         try:
             start = raw.find("["); end = raw.rfind("]") + 1
             proposals = json.loads(raw[start:end])
@@ -95,27 +85,19 @@ JSON: [{{"architecture_name": str, "mutations": [str], "rationale": str}}]
         } for p in proposals]
 
     async def generate_code(self, arch_spec: dict, llm_caller: Callable) -> str:
-        prompt = f"""
-Write a complete TensorFlow/Keras training script for this multimodal architecture:
-
-{json.dumps(arch_spec, indent=2)}
-
-Requirements:
-- Images: np.random.randn(500, 32, 32, 3).astype(np.float32)
-- Text tokens: np.random.randint(1, 5000, (500, 64))
-- Use contrastive loss (InfoNCE): -log(exp(sim_ii/t) / sum_j(exp(sim_ij/t)))
-- Simple image encoder: Conv2D + GlobalAvgPool + Dense(128)
-- Simple text encoder: Embedding + GlobalAvgPool + Dense(128)
-- Normalize both to unit length, compute cosine similarity matrix
-- Train 5 epochs, Adam
-- Save to output/model.keras
-- tensorflow, numpy only
-
-Return ONLY Python code.
-"""
-        code = await llm_caller(prompt, force_claude=True, max_tokens=3000)
+        system = (
+            TF_CODE_SYSTEM +
+            "\nDOMAIN: Multimodal (image + text contrastive learning)."
+            "\nSYNTHETIC DATA: images=np.random.randn(500,32,32,3).astype(np.float32); "
+            "tokens=np.random.randint(1,5000,(500,64)).astype(np.int32)"
+            "\nLOSS: InfoNCE contrastive — -log(exp(sim_ii/t)/sum_j(exp(sim_ij/t))). "
+            "Image encoder: Conv2D+GlobalAvgPool+Dense(128). Text encoder: Embedding+GlobalAvgPool+Dense(128). "
+            "Normalize embeddings to unit length. EPOCHS: 5."
+        )
+        prompt = f"Architecture spec to implement:\n{json.dumps(arch_spec, indent=2)}"
+        code = await llm_caller(prompt, system=system, force_claude=True, max_tokens=3000)
         if "```python" in code: code = code.split("```python")[1].split("```")[0]
-        elif "```" in code: code = code.split("```")[1].split("```")[0]
+        elif "```" in code:     code = code.split("```")[1].split("```")[0]
         return code.strip()
 
     def generate_synthetic_data(self, size: int = 500, params: dict | None = None) -> Any:

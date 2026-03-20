@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from .base_domain import BaseDomain
+from .base_domain import BaseDomain, TF_CODE_SYSTEM, MUTATION_SYSTEM, MECHANISM_SYSTEM
 
 
 class AudioDomain(BaseDomain):
@@ -51,15 +51,9 @@ class AudioDomain(BaseDomain):
     }
 
     async def generate_mechanism(self, research_insights: str, llm_caller: Callable) -> list[dict]:
-        prompt = f"""
-You are an audio/speech ML researcher. Based on:
-
-{research_insights}
-
-Derive 3 novel mechanisms for audio neural networks.
-JSON array: [{{"name": str, "description": str, "sympy_expression": str}}]
-"""
-        raw = await llm_caller(prompt, force_claude=True, max_tokens=1200)
+        system = MECHANISM_SYSTEM + "\nDomain: audio / speech (Conformers, CNNs on spectrograms, sound classification)."
+        prompt = f"Research insights:\n{research_insights}\n\nDerive 3 novel mechanisms for audio neural networks. JSON array:"
+        raw = await llm_caller(prompt, system=system, force_claude=True, max_tokens=1200)
         try:
             start = raw.find("["); end = raw.rfind("]") + 1
             return json.loads(raw[start:end])
@@ -68,13 +62,9 @@ JSON array: [{{"name": str, "description": str, "sympy_expression": str}}]
 
     async def propose_mutations(self, base_arch: str, mechanisms: list[dict], llm_caller: Callable) -> list[dict]:
         template = self.get_base_template(base_arch)
-        prompt   = f"""
-Audio architecture: {json.dumps(template, indent=2)}
-Mechanisms: {json.dumps(mechanisms, indent=2)}
-Propose 3 mutations. Operators: {self.mutation_operators}
-JSON: [{{"architecture_name": str, "mutations": [str], "rationale": str}}]
-"""
-        raw = await llm_caller(prompt, force_claude=True, max_tokens=1200)
+        system   = MUTATION_SYSTEM + f"\nDomain: audio. Available operators: {self.mutation_operators}."
+        prompt   = f"Base architecture:\n{json.dumps(template, indent=2)}\n\nMechanisms:\n{json.dumps(mechanisms, indent=2)}\n\nPropose 3 mutations. JSON array:"
+        raw = await llm_caller(prompt, system=system, force_claude=True, max_tokens=1200)
         try:
             start = raw.find("["); end = raw.rfind("]") + 1
             proposals = json.loads(raw[start:end])
@@ -91,24 +81,17 @@ JSON: [{{"architecture_name": str, "mutations": [str], "rationale": str}}]
         } for p in proposals]
 
     async def generate_code(self, arch_spec: dict, llm_caller: Callable) -> str:
-        prompt = f"""
-Write a complete TensorFlow/Keras training script for this audio architecture:
-
-{json.dumps(arch_spec, indent=2)}
-
-Requirements:
-- Input: mel-spectrogram tensors shape (N, 64, 32, 1)
-- Generate synthetic data: np.random.uniform(0, 1, (1000, 64, 32, 1))
-- Labels: np.random.randint(0, 10, (1000,))
-- Train 5 epochs, Adam optimizer
-- Save to output/model.keras
-- tensorflow, numpy only
-
-Return ONLY Python code.
-"""
-        code = await llm_caller(prompt, force_claude=True, max_tokens=3000)
+        system = (
+            TF_CODE_SYSTEM +
+            "\nDOMAIN: Audio classification (mel-spectrograms)."
+            "\nSYNTHETIC DATA: X = np.random.uniform(0,1,(1000,64,32,1)).astype(np.float32); "
+            "y = np.random.randint(0,10,(1000,)).astype(np.int32)"
+            "\nLOSS: sparse_categorical_crossentropy. METRICS: accuracy. EPOCHS: 5."
+        )
+        prompt = f"Architecture spec to implement:\n{json.dumps(arch_spec, indent=2)}"
+        code = await llm_caller(prompt, system=system, force_claude=True, max_tokens=3000)
         if "```python" in code: code = code.split("```python")[1].split("```")[0]
-        elif "```" in code: code = code.split("```")[1].split("```")[0]
+        elif "```" in code:     code = code.split("```")[1].split("```")[0]
         return code.strip()
 
     def generate_synthetic_data(self, size: int = 1000, params: dict | None = None) -> Any:
