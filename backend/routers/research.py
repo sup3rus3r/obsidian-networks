@@ -305,6 +305,66 @@ async def compile_candidate(research_id: str, req: CompileCandidateRequest):
     )
 
 
+# ── Continue after user decision ──────────────────────────────────────────────
+
+@router.post("/{research_id}/continue")
+async def continue_research(research_id: str):
+    """
+    Resume a session that is paused at 'awaiting_decision'.
+    Resets the consecutive-failure counter and re-queues the next generation
+    using the pending_context stored when the session paused.
+    """
+    try:
+        db  = await _get_mongo()
+        doc = await db["research_sessions"].find_one({"_id": research_id})
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {e}")
+
+    if not doc:
+        raise HTTPException(status_code=404, detail="Research session not found")
+    if doc.get("status") != "awaiting_decision":
+        raise HTTPException(status_code=409, detail=f"Session is not awaiting a decision (status: {doc.get('status')})")
+
+    pending_context = doc.get("pending_context")
+    if not pending_context:
+        raise HTTPException(status_code=422, detail="No pending context stored — cannot resume")
+
+    # Reset the failure counter so the next stretch gets a clean slate
+    pending_context["consecutive_improvement_attempts"] = 0
+
+    try:
+        await db["research_sessions"].update_one(
+            {"_id": research_id},
+            {"$set": {"status": "running", "pending_context": None, "updated_at": _now_iso()}},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Database update failed: {e}")
+
+    from tasks_research import run_research_generation
+    run_research_generation.apply_async(
+        kwargs = dict(research_session_id=research_id, context=pending_context),
+        queue  = "research",
+    )
+
+    try:
+        r = _get_redis()
+        r.publish(
+            f"research:{research_id}",
+            json.dumps({
+                "event_type"         : "session_resumed",
+                "research_session_id": research_id,
+                "generation"         : pending_context.get("generation", 0),
+                "message"            : "Research resumed — exploring with new mathematical mechanisms",
+                "timestamp"          : _now_iso(),
+            }),
+        )
+        r.close()
+    except Exception:
+        pass
+
+    return {"message": "Research resumed", "research_session_id": research_id}
+
+
 # ── Cancel session ────────────────────────────────────────────────────────────
 
 @router.delete("/{research_id}")

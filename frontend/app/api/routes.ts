@@ -32,4 +32,5 @@ export const AppRoutes = {
   ResearchCandidate:     (rid: string, arch: string)  => `/api/platform/research/${rid}/candidate/${arch}`,
   ResearchCompile:       (rid: string)                => `/api/platform/research/${rid}/compile`,
   ResearchCancel:        (rid: string)                => `/api/platform/research/${rid}`,
+  ResearchContinue:      (rid: string)                => `/api/platform/research/${rid}/continue`,
 }

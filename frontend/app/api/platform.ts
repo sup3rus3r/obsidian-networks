@@ -303,3 +303,12 @@ export const cancelResearchSession = async (researchId: string): Promise<boolean
     return false
   }
 }
+
+export const continueResearchSession = async (researchId: string): Promise<boolean> => {
+  try {
+    const res = await fetch(AppRoutes.ResearchContinue(researchId), { method: 'POST' })
+    return res.ok
+  } catch {
+    return false
+  }
+}

@@ -46,6 +46,9 @@ research_celery_app.conf.update(
 )
 
 
+MAX_IMPROVEMENT_ATTEMPTS = 3   # consecutive non-recurse gens before pausing for user input
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -319,32 +322,71 @@ def run_research_generation(self, research_session_id: str, context: dict):
             next_gen = generation + 1
             if next_gen < max_gen:
                 next_context = dict(context)
-                next_context["generation"]       = next_gen
-                next_context["depth"]            = context.get("depth", 0) + 1
-                next_context["failed_patterns"]  = all_failures
+                next_context["generation"]      = next_gen
+                next_context["depth"]           = context.get("depth", 0) + 1
+                next_context["failed_patterns"] = all_failures
 
                 if to_recurse:
-                    # Winners found — refine them in next generation
+                    # Winners found — refine them; reset the failure counter
                     logger.info("Recursing into generation %d with %d candidates", next_gen, len(to_recurse))
-                    next_context["previous_winner_arch"]     = ctx.get("previous_winner_arch")
-                    next_context["previous_winner_base_arch"] = ctx.get("previous_winner_base_arch")
-                    next_context["candidates_to_recurse"]    = to_recurse
+                    next_context["previous_winner_arch"]               = ctx.get("previous_winner_arch")
+                    next_context["previous_winner_base_arch"]          = ctx.get("previous_winner_base_arch")
+                    next_context["candidates_to_recurse"]              = to_recurse
+                    next_context["consecutive_improvement_attempts"]   = 0
                 else:
-                    # No winners — fresh exploration with new base archs, don't carry over previous winner
+                    # No winners above recurse threshold — build on best found rather
+                    # than starting from scratch; track consecutive failures
+                    consecutive = context.get("consecutive_improvement_attempts", 0) + 1
+                    best        = scored[0] if scored else None
+                    best_code   = code_meta.get(best["architecture_name"], {}) if best else {}
                     logger.info(
-                        "Generation %d produced no recurse candidates — fresh exploration for generation %d",
-                        generation, next_gen,
+                        "Generation %d: no recurse candidates (attempt %d/%d) — seeding gen %d from best: %s (score %.3f)",
+                        generation, consecutive, MAX_IMPROVEMENT_ATTEMPTS, next_gen,
+                        best["architecture_name"] if best else "none",
+                        best["composite_score"] if best else 0,
                     )
-                    next_context.pop("previous_winner_arch",      None)
-                    next_context.pop("previous_winner_base_arch", None)
-                    next_context.pop("candidates_to_recurse",     None)
+                    if best:
+                        next_context["previous_winner_arch"]      = best["architecture_name"]
+                        next_context["previous_winner_base_arch"] = best_code.get("base_template") or best["architecture_name"]
+                        next_context["candidates_to_recurse"]     = scored[:2]
+                    else:
+                        next_context.pop("previous_winner_arch",      None)
+                        next_context.pop("previous_winner_base_arch", None)
+                        next_context.pop("candidates_to_recurse",     None)
+                    next_context["consecutive_improvement_attempts"] = consecutive
+
+                    # After MAX attempts without a winner, pause and ask the user
+                    if consecutive >= MAX_IMPROVEMENT_ATTEMPTS:
+                        logger.info(
+                            "Session %s: %d consecutive failed generations — awaiting user decision",
+                            research_id, consecutive,
+                        )
+                        await _update_mongo_session(research_id, {
+                            "status"          : "awaiting_decision",
+                            "pending_context" : next_context,
+                            "updated_at"      : _now_iso(),
+                        })
+                        _publish(research_id, {
+                            "event_type"              : "awaiting_user_decision",
+                            "research_session_id"     : research_id,
+                            "generation"              : generation,
+                            "consecutive_failures"    : consecutive,
+                            "best_score"              : round(best["composite_score"], 3) if best else 0,
+                            "message"                 : (
+                                f"Tried {consecutive} times to improve without finding strong candidates "
+                                f"(best score: {round(best['composite_score'] * 100) if best else 0}%). "
+                                f"Continue exploring or stop?"
+                            ),
+                            "timestamp"               : _now_iso(),
+                        })
+                        return   # pause — wait for user to call /continue
 
                 _publish(research_id, {
                     "event_type"          : "generation_complete",
                     "research_session_id" : research_id,
                     "generation"          : generation,
                     "recurse"             : True,
-                    "fresh_exploration"   : not to_recurse,
+                    "mode"                : "recurse" if to_recurse else "improve_best",
                     "timestamp"           : _now_iso(),
                 })
                 run_research_generation.apply_async(

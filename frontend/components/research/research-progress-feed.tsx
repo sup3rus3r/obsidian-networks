@@ -2,11 +2,13 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { AppRoutes } from '@/app/api/routes'
+import { continueResearchSession, cancelResearchSession } from '@/app/api/platform'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   FlaskConical, Brain, Code2, Cpu, BarChart3,
   CheckCircle2, XCircle, Loader2, ChevronRight,
   BookOpen, FunctionSquare, Layers, Zap, ChevronDown,
+  HelpCircle,
 } from 'lucide-react'
 
 interface ProgressEvent {
@@ -17,6 +19,12 @@ interface ProgressEvent {
   message            ?: string
   data               ?: Record<string, unknown>
   timestamp           : string
+}
+
+interface DecisionPrompt {
+  consecutiveFailures : number
+  bestScore           : number
+  message             : string
 }
 
 const EVENT_ICONS: Record<string, React.ElementType> = {
@@ -39,19 +47,23 @@ const EVENT_ICONS: Record<string, React.ElementType> = {
   agent_start         : Loader2,
   agent_done          : Zap,
   generation_start    : FlaskConical,
-  generation_complete : FlaskConical,
-  session_complete    : CheckCircle2,
-  session_error       : XCircle,
-  session_cancelled   : XCircle,
+  generation_complete      : FlaskConical,
+  session_complete         : CheckCircle2,
+  session_error            : XCircle,
+  session_cancelled        : XCircle,
+  awaiting_user_decision   : HelpCircle,
+  session_resumed          : FlaskConical,
 }
 
 const EVENT_COLORS: Record<string, string> = {
-  session_complete  : 'text-[#39FF14]',
-  session_error     : 'text-red-400',
-  session_cancelled : 'text-zinc-500',
-  generation_start  : 'text-blue-400',
-  generation_complete: 'text-blue-300',
-  agent_done        : 'text-[#39FF14]/80',
+  session_complete       : 'text-[#39FF14]',
+  session_error          : 'text-red-400',
+  session_cancelled      : 'text-zinc-500',
+  generation_start       : 'text-blue-400',
+  generation_complete    : 'text-blue-300',
+  agent_done             : 'text-[#39FF14]/80',
+  awaiting_user_decision : 'text-amber-400',
+  session_resumed        : 'text-blue-400',
 }
 
 function AgentBadge({ name }: { name: string }) {
@@ -160,11 +172,13 @@ interface ResearchProgressFeedProps {
 }
 
 export function ResearchProgressFeed({ researchId, onComplete, onError }: ResearchProgressFeedProps) {
-  const [events,    setEvents]    = useState<ProgressEvent[]>([])
-  const [connected, setConnected] = useState(false)
-  const [done,      setDone]      = useState(false)
-  const bottomRef                 = useRef<HTMLDivElement>(null)
-  const esRef                     = useRef<EventSource | null>(null)
+  const [events,         setEvents]         = useState<ProgressEvent[]>([])
+  const [connected,      setConnected]      = useState(false)
+  const [done,           setDone]           = useState(false)
+  const [decisionPrompt, setDecisionPrompt] = useState<DecisionPrompt | null>(null)
+  const [deciding,       setDeciding]       = useState(false)
+  const bottomRef                           = useRef<HTMLDivElement>(null)
+  const esRef                               = useRef<EventSource | null>(null)
 
   useEffect(() => {
     const url = AppRoutes.ResearchStream(researchId)
@@ -190,6 +204,14 @@ export function ResearchProgressFeed({ researchId, onComplete, onError }: Resear
         } else if (data.event_type === 'session_cancelled') {
           setDone(true)
           es.close()
+        } else if (data.event_type === 'awaiting_user_decision') {
+          setDecisionPrompt({
+            consecutiveFailures: (data as any).consecutive_failures ?? 3,
+            bestScore          : Math.round(((data as any).best_score ?? 0) * 100),
+            message            : data.message ?? '',
+          })
+        } else if (data.event_type === 'session_resumed') {
+          setDecisionPrompt(null)
         }
       } catch { /* malformed — skip */ }
     })
@@ -201,6 +223,22 @@ export function ResearchProgressFeed({ researchId, onComplete, onError }: Resear
     return () => { es.close() }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [researchId])
+
+  const handleContinue = async () => {
+    setDeciding(true)
+    await continueResearchSession(researchId)
+    setDeciding(false)
+    // banner clears when session_resumed event arrives
+  }
+
+  const handleStop = async () => {
+    setDeciding(true)
+    await cancelResearchSession(researchId)
+    setDecisionPrompt(null)
+    setDone(true)
+    esRef.current?.close()
+    setDeciding(false)
+  }
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -235,6 +273,39 @@ export function ResearchProgressFeed({ researchId, onComplete, onError }: Resear
         </span>
         <span className="ml-auto text-[10px] text-zinc-700 font-mono">{events.length} events</span>
       </div>
+
+      {/* User decision banner */}
+      {decisionPrompt && !done && (
+        <div className="shrink-0 mx-4 my-2 rounded-lg border border-amber-500/40 bg-amber-950/30 px-4 py-3">
+          <div className="flex items-start gap-2 mb-3">
+            <HelpCircle className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-xs font-semibold text-amber-300">Research needs your input</p>
+              <p className="text-xs text-amber-200/70 mt-0.5">
+                After {decisionPrompt.consecutiveFailures} improvement attempts, the best score is{' '}
+                <span className="font-mono text-amber-300">{decisionPrompt.bestScore}%</span>.
+                Continue with fresh mathematical mechanisms, or stop here?
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleContinue}
+              disabled={deciding}
+              className="flex-1 rounded border border-[#39FF14]/40 bg-[#39FF14]/8 px-3 py-1.5 text-xs font-semibold text-[#39FF14] transition-all hover:border-[#39FF14]/70 hover:bg-[#39FF14]/15 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {deciding ? <Loader2 className="h-3 w-3 animate-spin mx-auto" /> : 'Continue Exploring'}
+            </button>
+            <button
+              onClick={handleStop}
+              disabled={deciding}
+              className="flex-1 rounded border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-zinc-400 transition-all hover:border-zinc-600 hover:text-zinc-300 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Stop Research
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Event log */}
       <ScrollArea className="flex-1 px-4 py-2">
