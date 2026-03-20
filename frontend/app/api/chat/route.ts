@@ -381,6 +381,30 @@ function createNotebookTool(sessionId: string | null) {
         }
       }
 
+      // Preflight: verify the script exists and has content before hitting the notebook endpoint.
+      // If edit_script was never called, this returns a clear instruction to write it first.
+      try {
+        const scriptRes = await fetch(`${apiBase}/platform/script/${sessionId}`, {
+          signal: AbortSignal.timeout(5_000),
+        })
+        if (!scriptRes.ok) {
+          return {
+            error : 'No training script found — generated_script.py does not exist yet.',
+            action: 'MANDATORY: Call edit_script(old_str="__REPLACE_ALL__", new_str=<complete Python training script>) to write the full script FIRST. Then call create_notebook again.',
+          }
+        }
+        const scriptData = await scriptRes.json().catch(() => null)
+        const lineCount  = scriptData?.line_count ?? 0
+        if (lineCount < 10) {
+          return {
+            error : `Script exists but is nearly empty (${lineCount} lines). It must be written before creating a notebook.`,
+            action: 'MANDATORY: Call edit_script(old_str="__REPLACE_ALL__", new_str=<complete Python training script>) to write the full script FIRST. Then call create_notebook again.',
+          }
+        }
+      } catch (prefErr) {
+        // Non-fatal — let the actual notebook call surface any real error
+      }
+
       try {
         const res = await fetch(`${apiBase}/platform/notebook/${sessionId}`, {
           method : 'POST',
@@ -464,6 +488,7 @@ You support two modes of operation:
 - CRITICAL — For video models: generate synthetic clip tensors with tf.random.normal(shape=(N, frames, H, W, C)). Use Conv3D or ConvLSTM2D. NEVER manually loop over frames with separate 2D convolutions unless the architecture specifically requires it.
 - CRITICAL — For Transformers / ViT: implement the full attention mechanism using tensorflow.keras layers (MultiHeadAttention, LayerNormalization, Dense). For ViT, use Conv2D with stride=patch_size to extract patches — NEVER use a for-loop over patches. For text transformers, use tensorflow.keras.layers.Embedding + positional encoding.
 - For all description-mode models (no dataset): the script MUST demonstrate a complete forward pass and at least one training step using the synthetic data, saving the model to output/model.keras.
+- CRITICAL — NEVER add subprocess, os.system, or pip install calls to the training script (the file written by edit_script). The training script must contain only pure model logic. If you need to install or downgrade a package to fix an environment error (e.g. numpy/ml_dtypes conflict), use run_code to run the pip install first, then retry — do NOT embed it in the training script.
 </constraints>
 
 <plan_template>
@@ -613,32 +638,56 @@ BEHAVIOUR:
 CURRENT PHASE: BUILD
 ${planBlock}
 
-BEHAVIOUR:
-1. If the user just approved the plan (says "looks good", "proceed", "approved", "go ahead", etc.):
-   → Call approve_plan first to unlock code generation tools.
+════════════════════════════════════════════════════════════════
+MANDATORY BUILD SEQUENCE — YOU MUST FOLLOW THIS EXACTLY
+════════════════════════════════════════════════════════════════
 
-2. BUILD FLOW (after approve_plan or if already in building phase):
-   → STEP 1 (DATASET MODE only): Call run_code to inspect the dataset:
-       run_code("import pandas as pd; df = pd.read_csv('dataset.csv'); print(df.shape); print(df.dtypes); print(df.head(2))")
-       Skip this step entirely for CNN / Video / Transformer description-mode tasks — no dataset file exists.
-   → STEP 2: Write the complete script via edit_script(old_str="__REPLACE_ALL__", new_str=<full script>)
-       - EVERY architecture decision in code must trace back to the approved plan above
-       - EVERY in-code comment must reference the plan section or paper source
-   → STEP 3: Call create_notebook with ONLY a description (no script argument)
-   → STEP 4: If create_notebook returns validation errors, use read_script + edit_script to fix, then retry
-   → STEP 5: After create_notebook succeeds, reply with 3–5 bullet points: architecture, key hyperparameters, expected output. No code shown.
+STEP 1 — Approve the plan (FIRST CALL, DO THIS ONCE):
+   Call approve_plan() → this unlocks edit_script and create_notebook.
+   If already in building phase (approve_plan was called in a prior turn), SKIP this step.
+   NEVER call approve_plan more than once.
 
-3. USER ASKS TO CHANGE/IMPROVE THE MODEL?
-   → Acknowledge the change, call run_code / read_script, apply targeted edit_script changes
+STEP 2 — Inspect the dataset (DATASET MODE ONLY):
+   Call run_code("import pandas as pd; df = pd.read_csv('dataset.csv'); print(df.shape); print(df.dtypes); print(df.head(2))")
+   SKIP entirely for CNN / Video / Transformer / description-mode tasks (no dataset file exists).
+
+STEP 3 — Write the training script (MANDATORY — ALWAYS DO THIS BEFORE create_notebook):
+   Call edit_script(old_str="__REPLACE_ALL__", new_str=<complete Python training script>)
+   ⚠ WARNING: create_notebook will FAIL if you skip this step. The script MUST be written first.
+   - Implement EXACTLY the architecture from the approved plan above
+   - Every in-code comment must reference the plan section or paper source
+
+STEP 4 — Create the notebook:
+   Call create_notebook(description="<one-line title>")
+   This reads the already-saved script — do NOT pass the script here.
+
+STEP 5 — Handle validation errors (if create_notebook returns errors):
+   Fix ALL listed errors with edit_script, then call create_notebook again.
+   Repeat until create_notebook returns ok: true.
+
+STEP 6 — Confirm success:
+   Reply with 3–5 bullets: architecture summary, key hyperparameters, expected output. No code shown.
+
+════════════════════════════════════════════════════════════════
+RULE: The order is ALWAYS: approve_plan → (run_code) → edit_script → create_notebook
+      You MUST NOT call create_notebook before edit_script has written the script.
+      You MUST NOT call query_research or produce_plan in the BUILD phase.
+════════════════════════════════════════════════════════════════
+
+USER ASKS TO CHANGE/IMPROVE THE MODEL?
+   → Acknowledge, call read_script + edit_script to apply changes
    → Call create_notebook again with updated description
    → Reply with 2–3 sentences describing what changed
 
-4. create_notebook RETURNS ERRORS?
-   → Fix ALL listed errors immediately without asking the user. Retry until ok: true.
-   → On HARD STOP: apologise, ask user to describe a simpler architecture.
+create_notebook RETURNS HARD STOP?
+   → Apologise, ask user to describe a simpler architecture.
+
+run_code / create_notebook RETURNS AN ENVIRONMENT ERROR (numpy/ml_dtypes conflict, missing package, version mismatch)?
+   → Fix it with run_code — NEVER embed pip install in the training script itself.
+   → For numpy/ml_dtypes conflicts: run_code("import subprocess; subprocess.run(['pip', 'install', 'numpy>=1.26,<2.0', '--quiet'], check=True)")
+   → Then retry the failing step. If the pip install itself fails or the error persists, stop and tell the user their environment has a package conflict that must be resolved outside the platform.
 
 NEVER deviate from the approved plan's architecture without explicit user instruction.
-NEVER call approve_plan more than once.
 </phase>`
   }
 
@@ -698,13 +747,24 @@ export async function POST(req: Request) {
         .filter(msg => typeof msg.content === 'string' && msg.content.trim() !== '')
     : prunedMessages
 
-  // Phase-gated tool set — script tools only available once plan is approved
+  // Phase-gated tool set — only the tools for the current phase are passed to the
+  // model. Passing locked tools even with system-prompt warnings still allows the
+  // model to call them; the only reliable gate is to omit them entirely.
   const isBuilding = sessionPhase === 'approved' || sessionPhase === 'building'
-  const phaseTools = {
-    ...createResearchTools(sessionId),
-    ...createPlanningTools(sessionId),
-    ...(isBuilding ? { ...createScriptTools(sessionId), create_notebook: createNotebookTool(sessionId) } : {}),
-  }
+  const { approve_plan } = createPlanningTools(sessionId)
+
+  const phaseTools = isBuilding
+    // BUILD phase: script tools + create_notebook + approve_plan (needed on first turn)
+    ? {
+        approve_plan,
+        ...createScriptTools(sessionId),
+        create_notebook: createNotebookTool(sessionId),
+      }
+    : sessionPhase === 'planning'
+    // PLANNING phase: query, plan, approve
+    ? createPlanningTools(sessionId)
+    // RESEARCH phase (idle / researching): research + finalize only
+    : createResearchTools(sessionId)
 
   // Wrap all models with reasoning middleware — extracts <think>...</think> blocks
   // from the text stream into proper reasoning parts for the ThinkingBlock UI.
