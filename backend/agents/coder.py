@@ -98,6 +98,13 @@ class CoderAgent(BaseAgent):
                     rationale=rationale,
                 )
 
+            # If mechanisms were specified, verify the code actually implements custom layers.
+            # If it's just standard Keras layers, the novel mechanism was silently dropped —
+            # force a targeted retry before the safety check.
+            if mechanisms and not self._has_custom_layers(code):
+                self.log_step(f"No custom layers in {arch_name} — forcing mechanism implementation", {})
+                code = await self._force_mechanism_implementation(code, mechanisms, rationale)
+
             # Safety check
             is_safe, violations = validate_code(code)
             if not is_safe:
@@ -189,6 +196,44 @@ Return ONLY the fixed Python code. Remove any forbidden imports or patterns.
         fixed = await self.call_llm(prompt, force_claude=True, max_tokens=3000)
         if "```python" in fixed: fixed = fixed.split("```python")[1].split("```")[0]
         elif "```" in fixed: fixed = fixed.split("```")[1].split("```")[0]
+        return fixed.strip()
+
+    def _has_custom_layers(self, code: str) -> bool:
+        """Return True if the code defines at least one custom tf.keras.layers.Layer subclass."""
+        import re
+        return bool(re.search(r'class\s+\w+\s*\(\s*tf\.keras\.layers\.Layer', code))
+
+    async def _force_mechanism_implementation(
+        self,
+        code: str,
+        mechanisms: list[dict],
+        rationale: str,
+    ) -> str:
+        """
+        The generated code has no custom layers — the LLM fell back to standard Keras.
+        Force a targeted rewrite that MUST implement each mechanism as a custom layer.
+        """
+        mech_lines = "\n".join(
+            f"  - {m.get('name', '?')}: {m.get('description', '')}"
+            + (f"\n    Math: {m['sympy_expression']}" if m.get("sympy_expression") else "")
+            for m in mechanisms
+        )
+        prompt = (
+            f"The following script was generated but does NOT implement the required novel mechanisms "
+            f"— it only uses standard Keras layers. This is incorrect.\n\n"
+            f"Mechanisms that MUST be implemented as tf.keras.layers.Layer subclasses:\n{mech_lines}\n\n"
+            f"Rationale: {rationale}\n\n"
+            f"Current (incorrect) script:\n```python\n{code[:3000]}\n```\n\n"
+            f"Rewrite the script so that:\n"
+            f"1. Each mechanism above appears as a Python class inheriting tf.keras.layers.Layer\n"
+            f"2. The class overrides call() with the actual mathematical operation described\n"
+            f"3. The model uses these custom layers as core components\n"
+            f"4. All other TF coding rules are preserved (synthetic data, output/model.keras, etc.)\n\n"
+            f"Return ONLY the complete Python script. No markdown fences."
+        )
+        fixed = await self.call_llm(prompt, force_claude=True, max_tokens=4000)
+        if "```python" in fixed: fixed = fixed.split("```python")[1].split("```")[0]
+        elif "```" in fixed:     fixed = fixed.split("```")[1].split("```")[0]
         return fixed.strip()
 
     def _estimate_params(self, code: str) -> int:

@@ -97,8 +97,8 @@ class RecommendationDomain(BaseDomain):
             "User Embedding + Item Embedding → Dot → Dense(1,sigmoid)."
             "\nLOSS: mse. EPOCHS: 10."
         )
-        ctx = self._format_mechanism_context(mechanisms, rationale)
-        prompt = f"Architecture spec to implement:\n{json.dumps(arch_spec, indent=2)}" + (f"\n\n{ctx}" if ctx else "")
+
+        prompt = self._build_code_prompt(arch_spec, mechanisms, rationale)
         code = await llm_caller(prompt, system=system, force_claude=True, max_tokens=3000)
         if "```python" in code: code = code.split("```python")[1].split("```")[0]
         elif "```" in code:     code = code.split("```")[1].split("```")[0]

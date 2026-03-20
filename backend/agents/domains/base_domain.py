@@ -247,11 +247,21 @@ class BaseDomain(ABC):
         )
 
     @staticmethod
-    def _format_mechanism_context(mechanisms: list[dict] | None, rationale: str | None) -> str:
-        """Format mechanism and rationale data for inclusion in generate_code user prompt."""
+    def _build_code_prompt(
+        arch_spec: dict,
+        mechanisms: list[dict] | None,
+        rationale: str | None,
+    ) -> str:
+        """
+        Build the user prompt for generate_code calls.
+
+        Mechanisms are the PRIMARY directive — they must be implemented as custom
+        tf.keras.layers.Layer subclasses. The arch_spec is scaffold only.
+        """
+        import json as _json
+
         parts: list[str] = []
-        if rationale:
-            parts.append(f"Design rationale (what this mutation is trying to achieve):\n{rationale}")
+
         if mechanisms:
             mech_lines = []
             for m in mechanisms:
@@ -259,12 +269,43 @@ class BaseDomain(ABC):
                 if m.get("sympy_expression"):
                     line += f"\n    Math: {m['sympy_expression']}"
                 mech_lines.append(line)
+
             parts.append(
-                "Novel mathematical hypotheses to explore — these are OPEN QUESTIONS, not recipes:\n"
+                "PRIMARY TASK — implement these novel mechanisms as custom Keras layers:\n"
                 + "\n".join(mech_lines)
-                + "\n\nIMPORTANT: Do NOT simply copy these expressions into the code. "
-                "Use them as the mathematical foundation for something new — adapt, combine, "
-                "or extend them in ways that have not appeared in any published paper. "
-                "The goal is a working implementation of an untested idea, not a reimplementation of a known one."
+                + "\n\n"
+                "RULES:\n"
+                "1. Each mechanism MUST be written as a Python class that inherits from "
+                "tf.keras.layers.Layer and overrides call(). Do not skip this.\n"
+                "2. The mathematical operation in call() must reflect the mechanism description — "
+                "do not substitute a standard layer (Dense, MultiHeadAttention, etc.) in its place.\n"
+                "3. Build the model USING these custom layers as its core components, not as add-ons.\n"
+                "4. Combining ideas from multiple mechanisms in one layer is encouraged if it produces "
+                "something genuinely new — use the descriptions as direction, not as a rigid spec.\n"
+                "5. A script with ONLY standard Keras layers and no custom class is WRONG."
             )
+        else:
+            if rationale:
+                parts.append(f"Design goal: {rationale}")
+
+        parts.append(
+            f"Architecture scaffold (use as context, NOT as a recipe to copy verbatim):\n"
+            f"{_json.dumps(arch_spec, indent=2)}"
+        )
+
+        return "\n\n".join(parts)
+
+    @staticmethod
+    def _format_mechanism_context(mechanisms: list[dict] | None, rationale: str | None) -> str:
+        """Legacy helper — kept for compatibility. New code uses _build_code_prompt."""
+        parts: list[str] = []
+        if rationale:
+            parts.append(f"Design rationale: {rationale}")
+        if mechanisms:
+            mech_lines = [
+                f"  - {m.get('name', '?')}: {m.get('description', '')}"
+                + (f"\n    Math: {m['sympy_expression']}" if m.get("sympy_expression") else "")
+                for m in mechanisms
+            ]
+            parts.append("Mechanisms:\n" + "\n".join(mech_lines))
         return "\n\n".join(parts)

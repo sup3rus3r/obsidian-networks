@@ -91,8 +91,8 @@ class GraphDomain(BaseDomain):
             "TF has no native GNN layers — implement message-passing GCN from scratch using tf.matmul."
             "\nLOSS: sparse_categorical_crossentropy. EPOCHS: 5."
         )
-        ctx = self._format_mechanism_context(mechanisms, rationale)
-        prompt = f"Architecture spec to implement:\n{json.dumps(arch_spec, indent=2)}" + (f"\n\n{ctx}" if ctx else "")
+
+        prompt = self._build_code_prompt(arch_spec, mechanisms, rationale)
         code = await llm_caller(prompt, system=system, force_claude=True, max_tokens=3000)
         if "```python" in code: code = code.split("```python")[1].split("```")[0]
         elif "```" in code:     code = code.split("```")[1].split("```")[0]
