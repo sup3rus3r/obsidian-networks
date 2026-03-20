@@ -23,7 +23,7 @@ export const AppRoutes = {
   ViewImage:          (sid: string, filename: string) => `/api/platform/download/${sid}/image/${filename}`,
   TriggerCompile:     (sid: string) => `/api/platform/compile/${sid}`,
   ClearOutputs:       (sid: string) => `/api/platform/outputs/${sid}`,
-  // ── Research Mode ────────────────────────────────────────────────────────
+  // ── Research Labs ────────────────────────────────────────────────────────
   ResearchCategories:    ()                           => `/api/platform/research/categories`,
   ResearchStart:         ()                           => `/api/platform/research/start`,
   ResearchStatus:        (rid: string)                => `/api/platform/research/${rid}/status`,

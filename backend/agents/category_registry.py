@@ -1,5 +1,5 @@
 """
-Category registry for Autonomous Research Mode.
+Category registry for Research Labs.
 
 Maps the 8 supported modality categories to:
 - Domain handlers

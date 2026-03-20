@@ -31,7 +31,7 @@ _LOCAL_TASK_KEYWORDS = {"extract", "classify", "summarize", "parse", "rate", "sc
 
 
 class BaseAgent(ABC):
-    """Abstract base class for all research mode agents."""
+    """Abstract base class for all Research Labs agents."""
 
     def __init__(self, research_session_id: str, base_model: str, domain: str):
         self.research_session_id = research_session_id
@@ -39,7 +39,6 @@ class BaseAgent(ABC):
         self.domain              = domain
         self.logger              = logging.getLogger(f"agents.{self.__class__.__name__}")
         self._llm_cache: dict[str, str] = {}
-        self._anthropic: AsyncAnthropic | None = None
 
     # ── Abstract interface ─────────────────────────────────────────────────────
 
@@ -95,35 +94,36 @@ class BaseAgent(ABC):
         return any(kw in lower for kw in _LOCAL_TASK_KEYWORDS)
 
     async def _call_claude(self, prompt: str, max_tokens: int = 2000, system: str | None = None) -> str:
-        if self._anthropic is None:
-            self._anthropic = AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
         model = self.base_model or os.environ.get("AI_MODEL") or "claude-sonnet-4-6"
 
         # Retry on 529 overloaded with exponential backoff (max 4 attempts)
         import asyncio as _asyncio
         from anthropic import APIStatusError as _APIStatusError
         delays = [5, 15, 30]
-        for attempt, delay in enumerate(delays + [None]):
-            try:
-                kwargs: dict = dict(
-                    model=model,
-                    max_tokens=max_tokens,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                if system:
-                    # cache_control on system prompt — Anthropic caches the KV state
-                    # after this block for up to 5 min, saving tokens on repeated calls.
-                    kwargs["system"] = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
-                response = await self._anthropic.messages.create(**kwargs)
-                return response.content[0].text
-            except _APIStatusError as e:
-                if e.status_code != 529 or delay is None:
-                    raise
-                self.logger.warning(
-                    "Anthropic API overloaded (attempt %d/%d), retrying in %ds…",
-                    attempt + 1, len(delays) + 1, delay,
-                )
-                await _asyncio.sleep(delay)
+        # Use client as a context manager so httpx connections close cleanly even
+        # when the Celery event loop shuts down mid-task (avoids RuntimeError: Event loop is closed)
+        async with AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY")) as client:
+            for attempt, delay in enumerate(delays + [None]):
+                try:
+                    kwargs: dict = dict(
+                        model=model,
+                        max_tokens=max_tokens,
+                        messages=[{"role": "user", "content": prompt}],
+                    )
+                    if system:
+                        # cache_control on system prompt — Anthropic caches the KV state
+                        # after this block for up to 5 min, saving tokens on repeated calls.
+                        kwargs["system"] = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+                    response = await client.messages.create(**kwargs)
+                    return response.content[0].text
+                except _APIStatusError as e:
+                    if e.status_code != 529 or delay is None:
+                        raise
+                    self.logger.warning(
+                        "Anthropic API overloaded (attempt %d/%d), retrying in %ds…",
+                        attempt + 1, len(delays) + 1, delay,
+                    )
+                    await _asyncio.sleep(delay)
 
     async def _call_local(self, prompt: str) -> str:
         async with httpx.AsyncClient(timeout=60.0) as client:

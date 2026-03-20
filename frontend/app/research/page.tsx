@@ -63,7 +63,7 @@ function Header({
         <Separator orientation="vertical" className="h-5 bg-zinc-800" />
         <div className="flex items-center gap-1.5 text-xs text-zinc-400">
           <FlaskConical className="h-3.5 w-3.5 text-[#39FF14]" />
-          Research Mode
+          Research Labs
         </div>
       </div>
 
@@ -154,7 +154,7 @@ export default function ResearchPage() {
                   <FlaskConical className="h-6 w-6 text-[#39FF14]" />
                 </div>
               </div>
-              <h1 className="text-xl font-bold text-zinc-100">Autonomous Research Mode</h1>
+              <h1 className="text-xl font-bold text-zinc-100">Research Labs</h1>
               <p className="mt-1.5 text-sm text-zinc-500">
                 Eight AI agents continuously discover, train, score, and recurse through novel neural architectures.
               </p>

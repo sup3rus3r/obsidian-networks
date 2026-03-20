@@ -1,4 +1,4 @@
-# Domain handlers for autonomous research mode
+# Domain handlers for Research Labs
 from .vision import VisionDomain
 from .language import LanguageDomain
 from .audio import AudioDomain

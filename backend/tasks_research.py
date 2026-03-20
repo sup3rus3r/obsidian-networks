@@ -1,5 +1,5 @@
 """
-Celery tasks for Autonomous Research Mode.
+Celery tasks for Research Labs.
 
 Tasks:
   prepare_dataset_task      — validate + index a dataset source
@@ -47,6 +47,7 @@ research_celery_app.conf.update(
 
 
 MAX_IMPROVEMENT_ATTEMPTS = 3   # consecutive non-recurse gens before pausing for user input
+GEN0_GRADUATE_THRESHOLD  = 0.50  # composite score that earns gen 0 a promotion to gen 1
 
 
 def _now_iso() -> str:
@@ -318,13 +319,71 @@ def run_research_generation(self, research_session_id: str, context: dict):
                 "updated_at"       : _now_iso(),
             })
 
-            # Decide whether to recurse
-            next_gen = generation + 1
+            # ── Decide what to do next ──────────────────────────────────────────
+            best      = scored[0] if scored else None
+            best_code = code_meta.get(best["architecture_name"], {}) if best else {}
+            best_score = best["composite_score"] if best else 0.0
+
+            next_gen         = generation + 1
+            max_gen0_retries = context.get("max_gen0_retries", 3)
+            gen0_attempt     = context.get("gen0_attempt", 0)
+
+            # ── Gen 0 retry logic ────────────────────────────────────────────────
+            # If we're still in generation 0, no candidate met the graduation threshold,
+            # AND we still have retries left → re-run gen 0 with fresh research + mutations
+            # (failure patterns accumulate so we don't repeat the same approaches).
+            gen0_graduated = bool(to_recurse) or best_score >= GEN0_GRADUATE_THRESHOLD
+            still_in_gen0  = generation == 0
+            has_gen0_retry = gen0_attempt + 1 < max_gen0_retries
+
+            if still_in_gen0 and not gen0_graduated and has_gen0_retry:
+                new_attempt = gen0_attempt + 1
+                logger.info(
+                    "Gen 0 attempt %d/%d: best score %.3f < %.2f — retrying with fresh research",
+                    new_attempt, max_gen0_retries, best_score, GEN0_GRADUATE_THRESHOLD,
+                )
+                _publish(research_id, {
+                    "event_type"          : "gen0_retry",
+                    "research_session_id" : research_id,
+                    "generation"          : 0,
+                    "gen0_attempt"        : new_attempt,
+                    "max_gen0_retries"    : max_gen0_retries,
+                    "best_score"          : round(best_score, 3),
+                    "message"             : (
+                        f"Gen 0 attempt {new_attempt}/{max_gen0_retries}: best score "
+                        f"{round(best_score * 100)}% below {round(GEN0_GRADUATE_THRESHOLD * 100)}% threshold "
+                        f"— retrying with fresh research"
+                    ),
+                    "timestamp"           : _now_iso(),
+                })
+                retry_context = dict(context)
+                retry_context["generation"]    = 0          # stay in gen 0
+                retry_context["gen0_attempt"]  = new_attempt
+                retry_context["failed_patterns"] = all_failures
+                # Pass the best code forward so the Coder improves it with the new mechanisms
+                # rather than generating from scratch — same "edit not regenerate" principle as gen 1+
+                if best:
+                    retry_context["previous_winner_code"]  = best_code.get("code", "")
+                    retry_context["previous_winner_score"] = round(best_score, 3)
+                # Clear pipeline outputs so research/math agents run fresh (new papers, new mechanisms)
+                # but keep previous_winner_code so Coder edits rather than rewrites
+                for key in ("research_papers", "research_insights", "candidate_mechanisms",
+                            "architecture_proposals", "generated_code", "scored_candidates",
+                            "candidates_to_recurse"):
+                    retry_context.pop(key, None)
+                run_research_generation.apply_async(
+                    kwargs = dict(research_session_id=research_id, context=retry_context),
+                    queue  = "research",
+                )
+                return
+
+            # ── Move to next generation ──────────────────────────────────────────
             if next_gen < max_gen:
                 next_context = dict(context)
                 next_context["generation"]      = next_gen
                 next_context["depth"]           = context.get("depth", 0) + 1
                 next_context["failed_patterns"] = all_failures
+                next_context["gen0_attempt"]    = 0          # reset for next gen
 
                 if to_recurse:
                     # Winners found — refine them; reset the failure counter
@@ -333,26 +392,35 @@ def run_research_generation(self, research_session_id: str, context: dict):
                     next_context["previous_winner_base_arch"]          = ctx.get("previous_winner_base_arch")
                     next_context["candidates_to_recurse"]              = to_recurse
                     next_context["consecutive_improvement_attempts"]   = 0
+                    # Pass the best winner's code for the editor to build on
+                    if best:
+                        next_context["previous_winner_code"]  = best_code.get("code", "")
+                        next_context["previous_winner_score"] = round(best_score, 3)
                 else:
-                    # No winners above recurse threshold — build on best found rather
-                    # than starting from scratch; track consecutive failures
+                    # No winners above recurse threshold — improve the best candidate's
+                    # actual code with new mathematical mechanisms rather than regenerating
+                    # from a template. This is how real research works: you iterate on
+                    # what you have, not throw it away and start over.
                     consecutive = context.get("consecutive_improvement_attempts", 0) + 1
-                    best        = scored[0] if scored else None
-                    best_code   = code_meta.get(best["architecture_name"], {}) if best else {}
                     logger.info(
-                        "Generation %d: no recurse candidates (attempt %d/%d) — seeding gen %d from best: %s (score %.3f)",
-                        generation, consecutive, MAX_IMPROVEMENT_ATTEMPTS, next_gen,
+                        "Generation %d: no recurse candidates (attempt %d/%d) — improving best: %s (score %.3f)",
+                        generation, consecutive, MAX_IMPROVEMENT_ATTEMPTS,
                         best["architecture_name"] if best else "none",
-                        best["composite_score"] if best else 0,
+                        best_score,
                     )
                     if best:
                         next_context["previous_winner_arch"]      = best["architecture_name"]
                         next_context["previous_winner_base_arch"] = best_code.get("base_template") or best["architecture_name"]
                         next_context["candidates_to_recurse"]     = scored[:2]
+                        # Pass the actual code so the Coder edits it instead of regenerating
+                        next_context["previous_winner_code"]      = best_code.get("code", "")
+                        next_context["previous_winner_score"]     = round(best_score, 3)
                     else:
-                        next_context.pop("previous_winner_arch",      None)
-                        next_context.pop("previous_winner_base_arch", None)
-                        next_context.pop("candidates_to_recurse",     None)
+                        next_context.pop("previous_winner_arch",       None)
+                        next_context.pop("previous_winner_base_arch",  None)
+                        next_context.pop("candidates_to_recurse",      None)
+                        next_context.pop("previous_winner_code",       None)
+                        next_context.pop("previous_winner_score",      None)
                     next_context["consecutive_improvement_attempts"] = consecutive
 
                     # After MAX attempts without a winner, pause and ask the user
@@ -371,10 +439,10 @@ def run_research_generation(self, research_session_id: str, context: dict):
                             "research_session_id"     : research_id,
                             "generation"              : generation,
                             "consecutive_failures"    : consecutive,
-                            "best_score"              : round(best["composite_score"], 3) if best else 0,
+                            "best_score"              : round(best_score, 3),
                             "message"                 : (
                                 f"Tried {consecutive} times to improve without finding strong candidates "
-                                f"(best score: {round(best['composite_score'] * 100) if best else 0}%). "
+                                f"(best score: {round(best_score * 100)}%). "
                                 f"Continue exploring or stop?"
                             ),
                             "timestamp"               : _now_iso(),

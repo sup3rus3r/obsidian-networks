@@ -47,9 +47,10 @@ export function ResearchLaunchForm({ onSessionStarted }: ResearchLaunchFormProps
   const [categories,   setCategories]   = useState<ResearchCategory[]>([])
   const [category,     setCategory]     = useState('vision')
   const [description,  setDescription]  = useState(CATEGORY_DEFAULT_PROMPTS['vision'] ?? '')
-  const [population,   setPopulation]   = useState(3)
-  const [maxGen,       setMaxGen]        = useState(3)
-  const [submitting,   setSubmitting]   = useState(false)
+  const [population,    setPopulation]    = useState(3)
+  const [maxGen,        setMaxGen]        = useState(3)
+  const [gen0Retries,   setGen0Retries]   = useState(3)
+  const [submitting,    setSubmitting]    = useState(false)
   const [error,        setError]        = useState<string | null>(null)
 
   useEffect(() => {
@@ -75,6 +76,7 @@ export function ResearchLaunchForm({ onSessionStarted }: ResearchLaunchFormProps
       task_description           : description.trim(),
       population_size            : population,
       max_generations            : maxGen,
+      max_gen0_retries           : gen0Retries,
       enable_real_data_validation: false,
     })
 
@@ -177,10 +179,36 @@ export function ResearchLaunchForm({ onSessionStarted }: ResearchLaunchFormProps
         </div>
       </div>
 
+      {/* Gen 0 Retries */}
+      <div className="space-y-2">
+        <label className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+          Gen 0 Max Attempts
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            type="range"
+            min={1} max={10} step={1}
+            value={Math.min(gen0Retries, 10)}
+            onChange={e => setGen0Retries(Number(e.target.value))}
+            className="flex-1 accent-[#39FF14]"
+          />
+          <input
+            type="number"
+            min={1}
+            value={gen0Retries}
+            onChange={e => setGen0Retries(Math.max(1, Number(e.target.value) || 1))}
+            className="w-14 rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-center font-mono text-sm text-zinc-200 focus:border-[#39FF14]/50 focus:outline-none"
+          />
+        </div>
+        <p className="text-[10px] text-zinc-600">
+          Gen 0 keeps retrying with fresh research until a candidate hits ≥50% or attempts run out
+        </p>
+      </div>
+
       {/* Est. cost hint */}
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2">
         <p className="text-[11px] text-zinc-500">
-          Approx. <span className="font-mono text-zinc-300">{population * maxGen}</span> training runs
+          Approx. <span className="font-mono text-zinc-300">{population * (gen0Retries + maxGen - 1)}</span> training runs
           &nbsp;·&nbsp;
           <span className="text-[#39FF14]/70">Free</span> on local CPU
           &nbsp;·&nbsp;

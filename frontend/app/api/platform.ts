@@ -156,7 +156,7 @@ export const triggerCompile = async (sessionId: string): Promise<{ task_id: stri
   }
 }
 
-// ── Research Mode ─────────────────────────────────────────────────────────────
+// ── Research Labs ─────────────────────────────────────────────────────────────
 
 export interface ResearchCategory {
   id          : string
@@ -172,6 +172,7 @@ export interface ResearchStartRequest {
   task_description          : string
   population_size           : number
   max_generations           : number
+  max_gen0_retries          : number
   enable_real_data_validation: boolean
   real_data_path            ?: string
 }

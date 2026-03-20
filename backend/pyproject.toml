@@ -32,7 +32,7 @@ dependencies = [
     "faiss-cpu>=1.8.0",
     "sentence-transformers>=3.0.0",
     "pypdf>=4.0.0",
-    # ── Research Mode (Autonomous Agent Loop) ────────────────────────────────
+    # ── Research Labs (Autonomous Agent Loop) ────────────────────────────────
     "arxiv>=2.0.0",
     "ollama>=0.2.0",
     "librosa>=0.10.0",

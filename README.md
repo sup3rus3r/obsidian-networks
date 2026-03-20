@@ -10,7 +10,7 @@ You describe the problem. It handles the rest: literature search, architecture s
 
 It runs entirely on your own hardware. No data leaves your machine. No API calls to a training service. No account required beyond whatever LLM provider you choose to use.
 
-Autonomous Research Mode goes further — instead of solving one problem, it runs an open-ended architecture search. Eight agents work in a loop across multiple generations: generating candidates, training them, scoring them, and recursing on the ones worth keeping. You set a domain and a goal, and it runs until it has something to show you.
+Research Labs goes further — instead of solving one problem, it runs an open-ended architecture search. Eight agents work in a loop across multiple generations: generating candidates, training them, scoring them, and recursing on the ones worth keeping. You set a domain and a goal, and it runs until it has something to show you.
 
 **Built in pursuit of AGI. Open source under AGPL v3.**
 
@@ -50,9 +50,9 @@ Autonomous Research Mode goes further — instead of solving one problem, it run
 
 <div align="center">
 
-**Autonomous Research Mode — Discovered Architectures Leaderboard**
+**Research Labs — Discovered Architectures Leaderboard**
 
-<img src="docs/images/image2.png" alt="Obsidian Networks Research Mode — architecture leaderboard with score breakdown" width="900" />
+<img src="docs/images/image2.png" alt="Obsidian Networks Research Labs — architecture leaderboard with score breakdown" width="900" />
 
 *Eight agents run continuously, scoring each candidate on novelty, efficiency, soundness, and generalisation. Top performers seed the next generation.*
 
@@ -76,9 +76,9 @@ That is the whole process. No configuration. No expertise required. No waiting o
 
 ---
 
-## Autonomous Research Mode
+## Research Labs
 
-Beyond building a single model, Obsidian Networks includes an Autonomous Research Mode — a multi-generation architecture discovery engine that searches an entire design space on your behalf, grounded in real academic research at every step.
+Beyond building a single model, Obsidian Networks includes Research Labs — a multi-generation architecture discovery engine that searches an entire design space on your behalf, grounded in real academic research at every step.
 
 You set a domain (vision, text, audio, time series, graph, multimodal, tabular, recommendation, or generative), a research goal in plain language, and how many candidates and generations to run. Eight specialised AI agents then execute in a coordinated pipeline:
 
@@ -150,13 +150,13 @@ This is architecture search that used to require a dedicated research team and m
 
 **Recommendations that don't collapse on new users.** No interaction history, no embeddings, nothing to work from. Cold start is a solved problem in the research literature but a hard one to implement from scratch. Describe the constraint, describe the content, and get an architecture built around it rather than one that just pretends the problem doesn't exist.
 
-**Finding a better execution policy without a six-week ablation study.** You have a working approach but suspect there's something better. Set a research goal in Autonomous Research Mode, point it at the RL domain, and let it run. Eight agents generate candidates, train them, score them on novelty and efficiency, and recurse on the top performers. By morning there's a ranked leaderboard. The answer to "is there something better?" used to require a dedicated research sprint. Now it runs while you sleep.
+**Finding a better execution policy without a six-week ablation study.** You have a working approach but suspect there's something better. Set a research goal in Research Labs, point it at the RL domain, and let it run. Eight agents generate candidates, train them, score them on novelty and efficiency, and recurse on the top performers. By morning there's a ranked leaderboard. The answer to "is there something better?" used to require a dedicated research sprint. Now it runs while you sleep.
 
 ---
 
 ## GPU Acceleration
 
-Autonomous Research Mode runs on CPU by default. This is fine for exploring how the system works, but CPU training produces weak metrics — which means lower scores, less recursion, and a leaderboard that reflects infrastructure limits more than architecture quality. For real research runs, attach a GPU.
+Research Labs runs on CPU by default. This is fine for exploring how the system works, but CPU training produces weak metrics — which means lower scores, less recursion, and a leaderboard that reflects infrastructure limits more than architecture quality. For real research runs, attach a GPU.
 
 Three options are supported. Set the relevant variables in your `.env` file.
 
@@ -354,7 +354,7 @@ Try: *"Forecast energy consumption for the next 24 hours using an LSTM."*
 | Task Queue | Celery 5, Redis 7 |
 | ML Runtime | TensorFlow 2.18+, Keras 3, NumPy 2.x, Pandas, scikit-learn, Gymnasium |
 | Research | FAISS vector store, sentence-transformers, pypdf, arXiv API, Context7 |
-| Research Mode | 8-agent autonomous loop, MongoDB, FAISS novelty index |
+| Research Labs | 8-agent autonomous loop, MongoDB, FAISS novelty index |
 | Deployment | Docker, Docker Compose |
 
 ---

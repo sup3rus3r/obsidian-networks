@@ -1,5 +1,5 @@
 """
-Initialize MongoDB collections and FAISS novelty index for Research Mode.
+Initialize MongoDB collections and FAISS novelty index for Research Labs.
 
 Run once:
   python init_research_db.py
@@ -91,7 +91,7 @@ def init_artifacts_dir():
 
 
 if __name__ == "__main__":
-    logger.info("Initializing Research Mode infrastructure...")
+    logger.info("Initializing Research Labs infrastructure...")
     init_artifacts_dir()
     asyncio.run(init_mongo())
     init_faiss_index()

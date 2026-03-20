@@ -1,5 +1,5 @@
 """
-Research Mode router — all /platform/research/* endpoints.
+Research Labs router — all /platform/research/* endpoints.
 
 Endpoints:
   POST   /platform/research/start           — start a research session
@@ -140,9 +140,11 @@ async def start_research(
                 "task_description"         : req.task_description,
                 "population_size"          : req.population_size,
                 "max_generations"          : req.max_generations,
+                "max_gen0_retries"         : req.max_gen0_retries,
                 "enable_real_data_validation": req.enable_real_data_validation,
                 "real_data_path"           : req.real_data_path,
                 "generation"               : 0,
+                "gen0_attempt"             : 0,
                 "depth"                    : 0,
             },
         ),

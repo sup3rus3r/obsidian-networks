@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 
 from .core import BaseAgent
 from .safety_checker import validate_code
@@ -21,13 +22,15 @@ logger = logging.getLogger(__name__)
 class CoderAgent(BaseAgent):
 
     async def run(self, context: dict) -> dict:
-        generation = context.get("generation", 0)
-        depth      = context.get("depth", 0)
-        domain     = context.get("domain", "vision")
-        proposals  = context.get("architecture_proposals", [])
+        generation           = context.get("generation", 0)
+        depth                = context.get("depth", 0)
+        domain               = context.get("domain", "vision")
+        proposals            = context.get("architecture_proposals", [])
+        previous_winner_code  = context.get("previous_winner_code", "")
+        previous_winner_score = context.get("previous_winner_score", 0.0)
 
         await self.emit_progress("agent_start", f"Coder generating code for {len(proposals)} architectures...", generation, depth)
-        self.log_step("Generating code", {"domain": domain, "n_proposals": len(proposals)})
+        self.log_step("Generating code", {"domain": domain, "n_proposals": len(proposals), "improvement_mode": bool(previous_winner_code)})
 
         from agents.domains import get_domain
         domain_handler = get_domain(domain)
@@ -36,7 +39,11 @@ class CoderAgent(BaseAgent):
 
         # Generate code for all proposals in parallel
         tasks = [
-            self._generate_single(domain_handler, p, mechanisms, generation, depth)
+            self._generate_single(
+                domain_handler, p, mechanisms, generation, depth,
+                previous_winner_code=previous_winner_code,
+                previous_winner_score=previous_winner_score,
+            )
             for p in proposals
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -58,18 +65,38 @@ class CoderAgent(BaseAgent):
         context["generated_code"] = generated_code
         return context
 
-    async def _generate_single(self, domain_handler, proposal: dict, mechanisms: list[dict], generation: int, depth: int) -> dict | None:
+    async def _generate_single(
+        self,
+        domain_handler,
+        proposal: dict,
+        mechanisms: list[dict],
+        generation: int,
+        depth: int,
+        previous_winner_code: str = "",
+        previous_winner_score: float = 0.0,
+    ) -> dict | None:
         arch_name = proposal.get("architecture_name", "unknown")
         arch_spec = proposal.get("spec", {})
         rationale = proposal.get("rationale", "")
 
         try:
-            code = await domain_handler.generate_code(
-                arch_spec,
-                llm_caller=self.call_llm,
-                mechanisms=mechanisms,
-                rationale=rationale,
-            )
+            if previous_winner_code:
+                # Improvement mode: use the agentic code editor to make surgical edits
+                # to the previous winner's code rather than generating from scratch.
+                code = await self._improve_code(
+                    previous_winner_code,
+                    previous_winner_score,
+                    mechanisms,
+                    arch_name,
+                    rationale,
+                )
+            else:
+                code = await domain_handler.generate_code(
+                    arch_spec,
+                    llm_caller=self.call_llm,
+                    mechanisms=mechanisms,
+                    rationale=rationale,
+                )
 
             # Safety check
             is_safe, violations = validate_code(code)
@@ -97,6 +124,50 @@ class CoderAgent(BaseAgent):
         except Exception as e:
             self.log_step(f"Code generation exception for {arch_name}", {"error": str(e)})
             return None
+
+    async def _improve_code(
+        self,
+        previous_code: str,
+        previous_score: float,
+        mechanisms: list[dict],
+        arch_name: str,
+        rationale: str,
+    ) -> str:
+        """
+        Use the agentic AgentCodeEditor to improve the previous winner's code.
+        Claude receives read/edit/validate tools so it can make surgical changes
+        rather than regenerating the entire script from scratch.
+        """
+        from .code_editor import AgentCodeEditor
+
+        mech_lines = "\n".join(
+            f"  - {m.get('name', '?')}: {m.get('description', '')}"
+            + (f"\n    Math: {m['sympy_expression']}" if m.get("sympy_expression") else "")
+            for m in mechanisms
+        )
+
+        prompt = (
+            f"You are improving an existing neural architecture training script.\n\n"
+            f"Current architecture name: {arch_name}\n"
+            f"Previous score: {previous_score:.1%} (your goal is to exceed this)\n"
+            f"Mutation rationale: {rationale}\n\n"
+            f"New mathematical mechanisms to implement:\n{mech_lines}\n\n"
+            f"Instructions:\n"
+            f"1. Use read_code to examine the full script\n"
+            f"2. Identify the best insertion points for each mechanism\n"
+            f"3. Use str_replace to make targeted edits — do NOT rewrite the whole script\n"
+            f"4. Actually implement the mathematical operations (not just comments)\n"
+            f"5. Use validate_syntax to confirm the code is valid\n"
+            f"6. Call finish when done\n\n"
+            f"The script must remain self-contained with synthetic data and save to output/model.keras."
+        )
+
+        editor = AgentCodeEditor(
+            initial_code=previous_code,
+            model=self.base_model or os.environ.get("AI_MODEL", "claude-sonnet-4-6"),
+            api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
+        )
+        return await editor.edit(prompt)
 
     async def _fix_code(self, code: str, violations: list[str], domain_handler, arch_spec: dict) -> str:
         """Ask LLM to fix safety violations."""

@@ -1,5 +1,5 @@
 """
-Pydantic schemas for Obsidian Networks Autonomous Research Mode.
+Pydantic schemas for Obsidian Networks Research Labs.
 """
 from __future__ import annotations
 
@@ -63,6 +63,7 @@ class ResearchModeWithCategoryRequest(BaseModel):
     task_description          : str
     population_size           : int = Field(default=3, ge=1, le=20)
     max_generations           : int = Field(default=3, ge=1, le=50)
+    max_gen0_retries          : int = Field(default=3, ge=1, le=20)
     enable_real_data_validation: bool = False
     real_data_path            : str | None = None
 

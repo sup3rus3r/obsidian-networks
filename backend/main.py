@@ -71,7 +71,7 @@ app = FastAPI(lifespan=lifespan)
 # ── Platform (open source v1) ─────────────────────────────────────────────────
 app.include_router(platform_router)
 
-# ── Research Mode ─────────────────────────────────────────────────────────────
+# ── Research Labs ─────────────────────────────────────────────────────────────
 app.include_router(research_router)
 
 app.state.limiter = limiter

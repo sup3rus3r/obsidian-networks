@@ -1,1 +1,1 @@
-# Obsidian Networks — Autonomous Research Mode agents
+# Obsidian Networks — Research Labs agents

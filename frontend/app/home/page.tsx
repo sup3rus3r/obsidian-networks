@@ -77,10 +77,10 @@ function Header({
         <Link
           href="/research"
           className="flex items-center gap-1 rounded-md border border-violet-500/30 px-2 py-1 text-[11px] text-violet-400/70 transition-colors hover:border-violet-400/60 hover:text-violet-400"
-          title="Autonomous Research Mode — discover novel architectures with 8 AI agents"
+          title="Research Labs — discover novel architectures with 8 AI agents"
         >
           <FlaskConical className="h-3 w-3" />
-          Research Mode
+          Research Labs
           <span className="rounded bg-violet-500/20 px-1 py-px text-[9px] font-semibold uppercase tracking-wider text-violet-400/80">Experimental</span>
         </Link>
 
