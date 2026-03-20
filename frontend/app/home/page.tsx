@@ -108,6 +108,17 @@ export default function Home() {
   const chatRef = useRef<ChatPanelHandle>(null)
 
   const handleCompileError = useCallback((error: string) => {
+    // Numpy/ml_dtypes version conflict cannot be fixed by the AI modifying the script.
+    // Skip the AI loop and show a direct environment fix message instead.
+    const isEnvError = /ml_dtypes|TypeError.*finfo|expected 0 arguments, got 1/i.test(error)
+    if (isEnvError) {
+      chatRef.current?.sendEnvError(
+        'The script is correct but your local environment has a NumPy 2.x / ml_dtypes version conflict.\n\n' +
+        'Fix it by running this in your terminal:\n```\npip install "numpy>=1.26,<2.0"\n```\n' +
+        'Then click Compile & Train again. This does not occur when running inside Docker.'
+      )
+      return
+    }
     chatRef.current?.sendError(error)
   }, [])
 
