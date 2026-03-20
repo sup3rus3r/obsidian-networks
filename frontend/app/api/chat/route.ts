@@ -813,7 +813,7 @@ export async function POST(req: Request) {
     system         : buildSystemPrompt(sessionPhase, sessionPlan),
     messages       : modelMessages,
     tools          : phaseTools,
-    stopWhen       : stepCountIs(40),
+    stopWhen       : stepCountIs(20),
     // Anthropic: cache the system prompt + auto-clear old tool uses when context grows large.
     // cacheControl marks the system prompt for ephemeral caching (reduces cost + TPM usage).
     // contextManagement clears old tool-use results at 60k tokens, keeping last 3 tool turns.
