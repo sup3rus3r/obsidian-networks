@@ -285,6 +285,23 @@ def run_research_generation(self, research_session_id: str, context: dict):
             gen_code   = ctx.get("generated_code", [])
             to_recurse = ctx.get("candidates_to_recurse", [])
 
+            # Build failure patterns: discarded candidates the next generation should avoid
+            recurse_names  = {c["architecture_name"] for c in to_recurse}
+            code_meta      = {g["architecture_name"]: g for g in gen_code}
+            new_failures   = [
+                {
+                    "architecture_name": c["architecture_name"],
+                    "composite_score"  : round(c.get("composite_score", 0), 3),
+                    "mutations"        : code_meta.get(c["architecture_name"], {}).get("mutations", []),
+                    "failure_reason"   : c.get("next_action", "discard"),
+                }
+                for c in scored
+                if c["architecture_name"] not in recurse_names
+            ]
+            # Accumulate across generations (cap at 20 to avoid prompt bloat)
+            prior_failures = context.get("failed_patterns", [])
+            all_failures   = (prior_failures + new_failures)[-20:]
+
             await _save_candidates(
                 research_id, scored, gen_code,
                 generation=generation,
@@ -300,29 +317,42 @@ def run_research_generation(self, research_session_id: str, context: dict):
 
             # Decide whether to recurse
             next_gen = generation + 1
-            if to_recurse and next_gen < max_gen:
-                logger.info("Recursing into generation %d with %d candidates", next_gen, len(to_recurse))
+            if next_gen < max_gen:
+                next_context = dict(context)
+                next_context["generation"]       = next_gen
+                next_context["depth"]            = context.get("depth", 0) + 1
+                next_context["failed_patterns"]  = all_failures
+
+                if to_recurse:
+                    # Winners found — refine them in next generation
+                    logger.info("Recursing into generation %d with %d candidates", next_gen, len(to_recurse))
+                    next_context["previous_winner_arch"]     = ctx.get("previous_winner_arch")
+                    next_context["previous_winner_base_arch"] = ctx.get("previous_winner_base_arch")
+                    next_context["candidates_to_recurse"]    = to_recurse
+                else:
+                    # No winners — fresh exploration with new base archs, don't carry over previous winner
+                    logger.info(
+                        "Generation %d produced no recurse candidates — fresh exploration for generation %d",
+                        generation, next_gen,
+                    )
+                    next_context.pop("previous_winner_arch",      None)
+                    next_context.pop("previous_winner_base_arch", None)
+                    next_context.pop("candidates_to_recurse",     None)
+
                 _publish(research_id, {
                     "event_type"          : "generation_complete",
                     "research_session_id" : research_id,
                     "generation"          : generation,
                     "recurse"             : True,
+                    "fresh_exploration"   : not to_recurse,
                     "timestamp"           : _now_iso(),
-                })
-                next_context = dict(context)
-                next_context.update({
-                    "generation"              : next_gen,
-                    "depth"                   : context.get("depth", 0) + 1,
-                    "previous_winner_arch"    : ctx.get("previous_winner_arch"),
-                    "previous_winner_base_arch": ctx.get("previous_winner_base_arch"),
-                    "candidates_to_recurse"   : to_recurse,
                 })
                 run_research_generation.apply_async(
                     kwargs = dict(research_session_id=research_id, context=next_context),
                     queue  = "research",
                 )
             else:
-                # Session complete
+                # Session complete — max generations reached
                 top = scored[0] if scored else {}
                 await _update_mongo_session(research_id, {
                     "status"         : "completed",

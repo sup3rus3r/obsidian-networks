@@ -130,15 +130,21 @@ export function ResearchLaunchForm({ onSessionStarted }: ResearchLaunchFormProps
           <label className="text-xs font-medium uppercase tracking-wider text-zinc-500">
             Candidates / Generation
           </label>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <input
               type="range"
-              min={2} max={8} step={1}
-              value={population}
+              min={2} max={20} step={1}
+              value={Math.min(population, 20)}
               onChange={e => setPopulation(Number(e.target.value))}
               className="flex-1 accent-[#39FF14]"
             />
-            <span className="w-6 text-center font-mono text-sm text-zinc-200">{population}</span>
+            <input
+              type="number"
+              min={2}
+              value={population}
+              onChange={e => setPopulation(Math.max(2, Number(e.target.value) || 2))}
+              className="w-14 rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-center font-mono text-sm text-zinc-200 focus:border-[#39FF14]/50 focus:outline-none"
+            />
           </div>
           <p className="text-[10px] text-zinc-600">
             More candidates → broader search, longer runtime
@@ -149,15 +155,21 @@ export function ResearchLaunchForm({ onSessionStarted }: ResearchLaunchFormProps
           <label className="text-xs font-medium uppercase tracking-wider text-zinc-500">
             Max Generations
           </label>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <input
               type="range"
-              min={1} max={5} step={1}
-              value={maxGen}
+              min={1} max={20} step={1}
+              value={Math.min(maxGen, 20)}
               onChange={e => setMaxGen(Number(e.target.value))}
               className="flex-1 accent-[#39FF14]"
             />
-            <span className="w-6 text-center font-mono text-sm text-zinc-200">{maxGen}</span>
+            <input
+              type="number"
+              min={1}
+              value={maxGen}
+              onChange={e => setMaxGen(Math.max(1, Number(e.target.value) || 1))}
+              className="w-14 rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-center font-mono text-sm text-zinc-200 focus:border-[#39FF14]/50 focus:outline-none"
+            />
           </div>
           <p className="text-[10px] text-zinc-600">
             Each generation refines top candidates

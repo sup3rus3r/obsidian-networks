@@ -139,6 +139,7 @@ class BaseDomain(ABC):
         base_arch: str,
         mechanisms: list[dict],
         llm_caller: Callable[[str], Any],
+        failed_patterns: list[dict] | None = None,
     ) -> list[dict]:
         """
         Propose architecture mutations based on mechanisms.
@@ -207,6 +208,27 @@ class BaseDomain(ABC):
 
     def list_architectures(self) -> list[str]:
         return list(self.base_templates.keys())
+
+    @staticmethod
+    def _format_failure_context(failed_patterns: list[dict] | None) -> str:
+        """Format previously failed candidates for inclusion in propose_mutations prompt."""
+        if not failed_patterns:
+            return ""
+        lines = []
+        for f in failed_patterns:
+            name    = f.get("architecture_name", "?")
+            score   = f.get("composite_score", 0)
+            muts    = f.get("mutations", [])
+            why     = f.get("failure_reason", "")
+            line = f"  - {name} (score {score:.2f}): mutations={muts}"
+            if why:
+                line += f" — {why}"
+            lines.append(line)
+        return (
+            "Previously tried architectures that scored poorly — DO NOT repeat these mutation combinations:\n"
+            + "\n".join(lines)
+            + "\n\nPropose genuinely different mutations that explore new areas."
+        )
 
     @staticmethod
     def _format_mechanism_context(mechanisms: list[dict] | None, rationale: str | None) -> str:

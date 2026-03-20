@@ -32,8 +32,9 @@ class ArchitectAgent(BaseAgent):
         from agents.domains import get_domain
         from agents.category_registry import get_default_architectures
 
-        domain_handler = get_domain(domain)
-        base_archs     = domain_handler.list_architectures()
+        domain_handler  = get_domain(domain)
+        base_archs      = domain_handler.list_architectures()
+        failed_patterns = context.get("failed_patterns", [])
 
         # If recursing (depth > 0), seed with the winning base template from previous generation.
         # Use previous_winner_base_arch (e.g. "lstm") not previous_winner_arch ("lstm_mutant")
@@ -53,6 +54,7 @@ class ArchitectAgent(BaseAgent):
                 base_arch,
                 mechanisms,
                 llm_caller=self.call_llm,
+                failed_patterns=failed_patterns or None,
             )
             all_proposals.extend(proposals)
 

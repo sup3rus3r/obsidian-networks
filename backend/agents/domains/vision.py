@@ -63,10 +63,16 @@ class VisionDomain(BaseDomain):
         except Exception:
             return [{"name": "residual_attention", "description": "Attention-weighted residual connections", "sympy_expression": "x + attention(x) * x"}]
 
-    async def propose_mutations(self, base_arch: str, mechanisms: list[dict], llm_caller: Callable) -> list[dict]:
-        template = self.get_base_template(base_arch)
-        system   = MUTATION_SYSTEM + f"\nDomain: computer vision. Available operators: {self.mutation_operators}."
-        prompt   = f"Base architecture:\n{json.dumps(template, indent=2)}\n\nMechanisms:\n{json.dumps(mechanisms, indent=2)}\n\nPropose 3 mutations. JSON array:"
+    async def propose_mutations(self, base_arch: str, mechanisms: list[dict], llm_caller: Callable, failed_patterns: list[dict] | None = None) -> list[dict]:
+        template    = self.get_base_template(base_arch)
+        system      = MUTATION_SYSTEM + f"\nDomain: computer vision. Available operators: {self.mutation_operators}."
+        failure_ctx = self._format_failure_context(failed_patterns)
+        prompt      = (
+            f"Base architecture:\n{json.dumps(template, indent=2)}"
+            f"\n\nMechanisms:\n{json.dumps(mechanisms, indent=2)}"
+            + (f"\n\n{failure_ctx}" if failure_ctx else "")
+            + "\n\nPropose 3 mutations. JSON array:"
+        )
         raw = await llm_caller(prompt, system=system, force_claude=True, max_tokens=1500)
         try:
             start = raw.find("[")
