@@ -311,11 +311,14 @@ async def compile_candidate(research_id: str, req: CompileCandidateRequest):
 async def cancel_research_session(research_id: str):
     """Cancel a running research session and mark it as cancelled in MongoDB."""
     try:
-        # Publish cancel signal to the session's Redis channel
         r = _get_redis()
+        # Set the cancel key the worker polls between agents
+        r.set(f"research:cancel:{research_id}", "1", ex=3600)
+        # Also publish to SSE so the frontend gets the cancelled event immediately
         r.publish(
             f"research:{research_id}",
-            json.dumps({"event_type": "session_cancelled", "research_session_id": research_id}),
+            json.dumps({"event_type": "session_cancelled", "research_session_id": research_id,
+                        "timestamp": _now_iso()}),
         )
         r.close()
     except Exception:
