@@ -252,7 +252,10 @@ function createPlanningTools(sessionId: string | null) {
     approve_plan: tool({
       description:
         'Call this when the user approves the plan (says "looks good", "approved", "proceed", "go ahead", etc.). ' +
-        'Transitions the session to approved state and unlocks edit_script, run_code, and create_notebook.',
+        'Transitions the session to approved state. ' +
+        'CRITICAL: After calling this, you MUST stop immediately and reply with a short confirmation message. ' +
+        'Do NOT call query_research, produce_plan, edit_script, or create_notebook in the same turn. ' +
+        'The build tools (edit_script, create_notebook) only become available in the NEXT user turn.',
       inputSchema: z.object({}),
       execute: async () => {
         if (!sessionId) return { error: 'No active session' }
@@ -263,7 +266,11 @@ function createPlanningTools(sessionId: string | null) {
             body   : JSON.stringify({ phase: 'approved' }),
             signal : AbortSignal.timeout(10_000),
           })
-          return await res.json()
+          const data = await res.json()
+          return {
+            ...data,
+            next_action: 'STOP. Reply to the user with one sentence confirming the plan is approved and you will now build the script. Do NOT call any other tools in this turn.',
+          }
         } catch (e) {
           return { error: String(e) }
         }
@@ -440,6 +447,22 @@ function createNotebookTool(sessionId: string | null) {
         return { error: String(err) }
       }
     },
+  })
+}
+
+// ── Locked tool stub ──────────────────────────────────────────────────────────
+// When a tool is not available in the current phase, replace it with a stub that
+// returns an immediate error + instruction. This is better than omitting the tool
+// entirely because: (a) Anthropic's API may require schemas for tools that appear
+// in conversation history, and (b) it gives the model a clear recovery path.
+function lockedTool(name: string, instruction: string) {
+  return tool({
+    description: `[LOCKED — unavailable in current phase] Do NOT call this. ${instruction}`,
+    inputSchema: z.object({}),
+    execute: async () => ({
+      error : `PHASE ERROR: '${name}' is not available in the current phase.`,
+      action: instruction,
+    }),
   })
 }
 
@@ -754,15 +777,25 @@ export async function POST(req: Request) {
   const { approve_plan } = createPlanningTools(sessionId)
 
   const phaseTools = isBuilding
-    // BUILD phase: script tools + create_notebook + approve_plan (needed on first turn)
+    // BUILD phase: script tools + create_notebook + approve_plan (needed on first turn).
+    // query_research and produce_plan are locked stubs so the model gets a recovery
+    // instruction if it tries to call them (e.g. due to conversation history context).
     ? {
         approve_plan,
         ...createScriptTools(sessionId),
-        create_notebook: createNotebookTool(sessionId),
+        create_notebook : createNotebookTool(sessionId),
+        query_research  : lockedTool('query_research',  'Research and planning are complete. Call edit_script to write the training script, then call create_notebook.'),
+        produce_plan    : lockedTool('produce_plan',    'Planning is complete. Call edit_script to write the training script, then call create_notebook.'),
       }
     : sessionPhase === 'planning'
-    // PLANNING phase: query, plan, approve
-    ? createPlanningTools(sessionId)
+    // PLANNING phase: query, plan, approve.
+    // edit_script and create_notebook are locked stubs so the model gets a recovery
+    // instruction if it tries to jump ahead before the plan is approved.
+    ? {
+        ...createPlanningTools(sessionId),
+        edit_script     : lockedTool('edit_script',     'The plan has not been approved yet. Call produce_plan to submit the plan, then wait for the user to approve it.'),
+        create_notebook : lockedTool('create_notebook', 'The plan has not been approved yet. Call produce_plan to submit the plan, then wait for the user to approve it.'),
+      }
     // RESEARCH phase (idle / researching): research + finalize only
     : createResearchTools(sessionId)
 
