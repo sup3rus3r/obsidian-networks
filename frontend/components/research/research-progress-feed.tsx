@@ -8,7 +8,7 @@ import {
   FlaskConical, Brain, Code2, Cpu, BarChart3,
   CheckCircle2, XCircle, Loader2, ChevronRight,
   BookOpen, FunctionSquare, Layers, Zap, ChevronDown,
-  HelpCircle,
+  HelpCircle, ShieldCheck,
 } from 'lucide-react'
 
 interface ProgressEvent {
@@ -34,8 +34,10 @@ const EVENT_ICONS: Record<string, React.ElementType> = {
   mathematician_done  : FunctionSquare,
   architect_start     : Layers,
   architect_done      : Layers,
-  coder_start         : Code2,
-  coder_done          : Code2,
+  coder_start              : Code2,
+  coder_done               : Code2,
+  code_validator_start     : ShieldCheck,
+  code_validator_done      : ShieldCheck,
   trainer_start       : Cpu,
   trainer_done        : Cpu,
   evaluator_start     : BarChart3,
@@ -64,6 +66,7 @@ const EVENT_COLORS: Record<string, string> = {
   generation_complete    : 'text-blue-300',
   gen0_retry             : 'text-amber-300',
   agent_done             : 'text-[#39FF14]/80',
+  code_validator_done    : 'text-cyan-400',
   awaiting_user_decision : 'text-amber-400',
   session_resumed        : 'text-blue-400',
 }

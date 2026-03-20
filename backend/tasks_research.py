@@ -248,20 +248,22 @@ def run_research_generation(self, research_session_id: str, context: dict):
         }
 
         try:
-            from agents.researcher    import ResearcherAgent
-            from agents.mathematician import MathematicianAgent
-            from agents.architect     import ArchitectAgent
-            from agents.coder         import CoderAgent
-            from agents.trainer       import TrainerAgent
-            from agents.evaluator     import EvaluatorAgent
-            from agents.validator     import ValidatorAgent
-            from agents.critic        import CriticAgent
+            from agents.researcher     import ResearcherAgent
+            from agents.mathematician  import MathematicianAgent
+            from agents.architect      import ArchitectAgent
+            from agents.coder          import CoderAgent
+            from agents.code_validator import CodeValidatorAgent
+            from agents.trainer        import TrainerAgent
+            from agents.evaluator      import EvaluatorAgent
+            from agents.validator      import ValidatorAgent
+            from agents.critic         import CriticAgent
 
             pipeline = [
                 ResearcherAgent(**agent_kwargs),
                 MathematicianAgent(**agent_kwargs),
                 ArchitectAgent(**agent_kwargs),
                 CoderAgent(**agent_kwargs),
+                CodeValidatorAgent(**agent_kwargs),
                 TrainerAgent(**agent_kwargs),
                 EvaluatorAgent(**agent_kwargs),
                 ValidatorAgent(**agent_kwargs),
