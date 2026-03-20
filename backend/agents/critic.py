@@ -19,8 +19,8 @@ from .core import BaseAgent
 
 logger = logging.getLogger(__name__)
 
-RECURSE_THRESHOLD = 0.75
-ARCHIVE_THRESHOLD = 0.50
+RECURSE_THRESHOLD = 0.55   # top candidates seed next generation
+ARCHIVE_THRESHOLD = 0.25   # anything scoreable is worth showing
 
 
 class CriticAgent(BaseAgent):
@@ -189,26 +189,22 @@ class CriticAgent(BaseAgent):
             return 0.5
 
         loss = metrics.get("loss", 999)
-        acc  = metrics.get("accuracy", 0)
+        acc  = metrics.get("accuracy")
+        acc_str = f"{acc:.4f}" if isinstance(acc, (int, float)) else "N/A"
 
-        prompt = f"""
-Rate the soundness of this neural architecture on a scale from 0.0 to 1.0.
-
-Architecture: {arch_name}
-Final training loss: {loss:.4f}
-Final accuracy: {acc:.4f if acc else 'N/A'}
-
-Code (first 800 chars):
-{code[:800]}
-
-Consider:
-- Does the architecture make theoretical sense?
-- Is the training loss reasonable for a toy run?
-- Are there obvious design flaws?
-
-Reply with ONLY a single float between 0.0 and 1.0. Example: 0.72
-"""
         try:
+            prompt = (
+                f"Rate the soundness of this neural architecture on a scale from 0.0 to 1.0.\n\n"
+                f"Architecture: {arch_name}\n"
+                f"Final training loss: {float(loss):.4f}\n"
+                f"Final accuracy: {acc_str}\n\n"
+                f"Code (first 800 chars):\n{code[:800]}\n\n"
+                f"Consider:\n"
+                f"- Does the architecture make theoretical sense?\n"
+                f"- Is the training loss reasonable for a toy run?\n"
+                f"- Are there obvious design flaws?\n\n"
+                f"Reply with ONLY a single float between 0.0 and 1.0. Example: 0.72"
+            )
             raw   = await self.call_llm(prompt, force_claude=True, max_tokens=10)
             score = float(raw.strip().split()[0])
             return min(1.0, max(0.0, score))
