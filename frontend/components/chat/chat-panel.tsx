@@ -205,8 +205,7 @@ function ThinkingSkeleton() {
 }
 
 export interface ChatPanelHandle {
-  sendError   : (error: string) => void
-  sendEnvError: (message: string) => void
+  sendError: (error: string) => void
 }
 
 interface ChatPanelProps {
@@ -287,22 +286,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         text: `[__silent__]The training script failed to compile with the following error:\n\n${error}\n\nPlease fix the script and call create_notebook again with the corrected version.`,
       })
     },
-    // Inject an assistant message directly without triggering the AI.
-    // Used for environment errors the AI cannot fix (e.g. numpy version conflicts).
-    sendEnvError: (message: string) => {
-      const part = { type: 'text' as const, text: message }
-      setMessages(prev => [
-        ...prev,
-        {
-          id       : `env-err-${Date.now()}`,
-          role     : 'assistant',
-          content  : [part],
-          parts    : [part],
-          createdAt: new Date(),
-        } as unknown as UIMessage,
-      ])
-    },
-  }), [sendMessage, setMessages])
+  }), [sendMessage])
 
   const isLoading = status === 'streaming' || status === 'submitted'
 
