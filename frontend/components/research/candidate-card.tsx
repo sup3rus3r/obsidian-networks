@@ -7,7 +7,7 @@ import {
   Download, ChevronDown, ChevronUp,
   Zap, Brain, Sparkles, Shield,
   Cpu, Timer, Layers, Loader2, Info, GitBranch,
-  BookOpen, FlaskConical, ExternalLink,
+  BookOpen, FlaskConical, ExternalLink, Code2, Copy, Check,
 } from 'lucide-react'
 
 const ACTION_COLORS: Record<string, string> = {
@@ -61,6 +61,8 @@ export function CandidateCard({ candidate, researchId, rank }: CandidateCardProp
   const [expanded,      setExpanded]      = useState(rank === 0)
   const [showAbout,     setShowAbout]     = useState(false)
   const [showLineage,   setShowLineage]   = useState(false)
+  const [showCode,      setShowCode]      = useState(false)
+  const [copied,        setCopied]        = useState(false)
   const [downloading,   setDownloading]   = useState(false)
 
   const hasLineage = (candidate.research_papers?.length ?? 0) > 0 || (candidate.mechanisms?.length ?? 0) > 0
@@ -72,6 +74,13 @@ export function CandidateCard({ candidate, researchId, rank }: CandidateCardProp
   const ringColor = score >= 75 ? 'border-[#39FF14]/50' :
                     score >= 50 ? 'border-blue-500/40'   :
                                   'border-zinc-700'
+
+  const handleCopyCode = () => {
+    if (!candidate.code) return
+    navigator.clipboard.writeText(candidate.code)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
 
   const handleDownload = async () => {
     setDownloading(true)
@@ -349,6 +358,40 @@ export function CandidateCard({ candidate, researchId, rank }: CandidateCardProp
                     </div>
                   ))}
               </div>
+            </div>
+          )}
+
+          {/* View Code */}
+          {candidate.code && (
+            <div>
+              <button
+                onClick={() => setShowCode(x => !x)}
+                className="cursor-pointer flex w-full items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                <Code2 className="h-3 w-3" />
+                View generated code
+                <ChevronDown className={`ml-auto h-3 w-3 transition-transform ${showCode ? 'rotate-180' : ''}`} />
+              </button>
+
+              {showCode && (
+                <div className="mt-2 rounded border border-zinc-700/50 bg-zinc-950 overflow-hidden">
+                  <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-1.5">
+                    <span className="font-mono text-[10px] text-zinc-500">training_script.py</span>
+                    <button
+                      onClick={handleCopyCode}
+                      className="cursor-pointer flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                    >
+                      {copied
+                        ? <><Check className="h-3 w-3 text-[#39FF14]" /><span className="text-[#39FF14]">Copied</span></>
+                        : <><Copy className="h-3 w-3" />Copy</>
+                      }
+                    </button>
+                  </div>
+                  <pre className="overflow-x-auto p-3 text-[10px] leading-relaxed text-zinc-300 font-mono max-h-96">
+                    {candidate.code}
+                  </pre>
+                </div>
+              )}
             </div>
           )}
 
