@@ -12,8 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Layer 1: heavy ML wheels (TF, torch-based) — cached separately so a timeout only redoes this layer
 RUN pip install --no-cache-dir --timeout 300 --prefix=/install \
-    "numpy>=1.26.0,<2.0.0" \
-    "tensorflow-cpu>=2.16.1,<2.17.0" \
+    "numpy>=2.0.0,<3.0.0" \
+    "tensorflow-cpu>=2.17.0,<2.18.0" \
     "scikit-learn>=1.4.0" \
     "scipy>=1.13.0" \
     "pandas>=2.0.0" \

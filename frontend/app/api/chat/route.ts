@@ -536,7 +536,7 @@ You support two modes of operation:
 - CRITICAL — For video models: generate synthetic clip tensors with tf.random.normal(shape=(N, frames, H, W, C)). Use Conv3D or ConvLSTM2D. NEVER manually loop over frames with separate 2D convolutions unless the architecture specifically requires it.
 - CRITICAL — For Transformers / ViT: implement the full attention mechanism using tensorflow.keras layers (MultiHeadAttention, LayerNormalization, Dense). For ViT, use Conv2D with stride=patch_size to extract patches — NEVER use a for-loop over patches. For text transformers, use tensorflow.keras.layers.Embedding + positional encoding.
 - For all description-mode models (no dataset): the script MUST demonstrate a complete forward pass and at least one training step using the synthetic data, saving the model to output/model.keras.
-- CRITICAL — NEVER add subprocess, os.system, os.popen, or eval/exec calls anywhere in the training script or in run_code snippets — these are blocked by the security validator. If you encounter a package version error (e.g. numpy/ml_dtypes conflict), use the pip_install tool: pip_install({ package: "numpy>=1.26,<2.0" }). Then retry. Do NOT loop through run_code trying different workarounds.
+- CRITICAL — NEVER add subprocess, os.system, os.popen, or eval/exec calls anywhere in the training script or in run_code snippets — these are blocked by the security validator. If you encounter a package version error, use the pip_install tool once, then retry. Do NOT loop through run_code trying different workarounds.
 </constraints>
 
 <plan_template>

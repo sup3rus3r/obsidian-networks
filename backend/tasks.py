@@ -6,35 +6,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-# ── Dependency guard — runs before TensorFlow is imported ────────────────────
-# Ensures numpy<2.0 and a compatible ml_dtypes are present.
-# TF 2.16.x requires numpy 1.x; numpy 2.x breaks ml_dtypes at import time.
-# This runs automatically on worker startup so no manual intervention is needed.
-def _ensure_compatible_numpy() -> None:
-    try:
-        import numpy as _np
-        version = tuple(int(x) for x in _np.__version__.split(".")[:2])
-        if version >= (2, 0):
-            _log = logging.getLogger(__name__)
-            _log.warning(
-                "NumPy %s detected — incompatible with TensorFlow's ml_dtypes. "
-                "Auto-downgrading to numpy<2.0 …", _np.__version__
-            )
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install",
-                 "numpy>=1.26,<2.0", "ml_dtypes>=0.3.1,<0.4.0",
-                 "--quiet", "--disable-pip-version-check"],
-                stdout=subprocess.DEVNULL,
-            )
-            # Force reimport so the rest of the process sees the new version
-            import importlib
-            importlib.invalidate_caches()
-    except Exception as e:
-        logging.getLogger(__name__).warning("NumPy compatibility check failed: %s", e)
-
-_ensure_compatible_numpy()
-# ─────────────────────────────────────────────────────────────────────────────
-
 logger = logging.getLogger(__name__)
 
 from dotenv import load_dotenv

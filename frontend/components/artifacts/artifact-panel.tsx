@@ -228,7 +228,7 @@ function DownloadsSection({
 const ENV_ERROR_RE = /ml_dtypes|TypeError.*finfo|expected 0 arguments, got 1/i
 
 interface CompileState {
-  phase   : 'idle' | 'running' | 'fixing' | 'env_error' | 'error'
+  phase   : 'idle' | 'running' | 'fixing' | 'env_fix' | 'error'
   progress: number
   step    : string
   detail  : string | null
@@ -514,8 +514,19 @@ function CompileSection({
           // Snapshot mtime now — only recompile when mtime advances beyond this point
           fixingMtimeRef.current = status.notebook_mtime
           if (ENV_ERROR_RE.test(errMsg)) {
-            // Environment issue — show targeted fix UI, do NOT trigger AI loop
-            setCompile({ phase: 'env_error', progress: 0, step: '', detail: null, error: errMsg })
+            // NumPy/ml_dtypes env conflict — auto-fix silently and retry, no AI, no manual steps
+            setCompile({ phase: 'env_fix', progress: 0, step: 'Fixing environment…', detail: null, error: null })
+            fetch(`/api/platform/pip_install/${sessionId}`, {
+              method : 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body   : JSON.stringify({ package: 'numpy>=2.0,<3.0 tensorflow-cpu>=2.17,<2.18' }),
+            }).then(() => {
+              // Retry compile automatically after env fix
+              setCompile({ phase: 'idle', progress: 0, step: '', detail: null, error: null })
+              setTimeout(() => startCompileRef.current?.(), 300)
+            }).catch(() => {
+              setCompile({ phase: 'error', progress: 0, step: '', detail: null, error: errMsg })
+            })
           } else {
             setCompile({ phase: 'fixing', progress: 0, step: '', detail: null, error: errMsg })
             onCompileError(errMsg)
@@ -599,22 +610,10 @@ function CompileSection({
           </div>
         )}
 
-        {compile.phase === 'env_error' && (
-          <div className="rounded-lg border border-red-900/40 bg-red-950/20 p-3 space-y-2">
-            <p className="text-xs font-medium text-red-400">Environment error — NumPy version conflict</p>
-            <p className="text-[11px] text-zinc-400 leading-relaxed">
-              NumPy 2.x is incompatible with this TensorFlow build. The script is correct.
-            </p>
-            <p className="text-[11px] text-zinc-500">Run this in your terminal, then compile again:</p>
-            <pre className="text-[11px] bg-zinc-900 rounded px-2 py-1.5 text-green-400 select-all">
-              pip install &quot;numpy==1.26.4&quot; &quot;ml_dtypes==0.3.2&quot;
-            </pre>
-            <button
-              onClick={() => { fixingMtimeRef.current = null; setCompile({ phase: 'idle', progress: 0, step: '', detail: null, error: null }) }}
-              className="cursor-pointer text-[10px] text-zinc-600 underline hover:text-zinc-400"
-            >
-              Dismiss
-            </button>
+        {compile.phase === 'env_fix' && (
+          <div className="rounded-lg border border-zinc-700 bg-zinc-900/60 p-3 flex items-center gap-2">
+            <Loader2 className="h-3.5 w-3.5 shrink-0 text-zinc-400 animate-spin" />
+            <p className="text-xs text-zinc-400">Fixing environment, retrying…</p>
           </div>
         )}
 
