@@ -91,7 +91,7 @@ class GenerativeDomain(BaseDomain):
             "rationale"        : p.get("rationale", ""),
         } for p in proposals]
 
-    async def generate_code(self, arch_spec: dict, llm_caller: Callable) -> str:
+    async def generate_code(self, arch_spec: dict, llm_caller: Callable, mechanisms: list[dict] | None = None, rationale: str | None = None) -> str:
         arch_type = arch_spec.get("type", "vae")
         system = (
             TF_CODE_SYSTEM +
@@ -101,7 +101,8 @@ class GenerativeDomain(BaseDomain):
             "\nFor GAN: alternate generator/discriminator training steps each batch."
             "\nSave main model (encoder for VAE, generator for GAN) to output/model.keras. EPOCHS: 5."
         )
-        prompt = f"Architecture spec to implement:\n{json.dumps(arch_spec, indent=2)}"
+        ctx = self._format_mechanism_context(mechanisms, rationale)
+        prompt = f"Architecture spec to implement:\n{json.dumps(arch_spec, indent=2)}" + (f"\n\n{ctx}" if ctx else "")
         code = await llm_caller(prompt, system=system, force_claude=True, max_tokens=4000)
         if "```python" in code: code = code.split("```python")[1].split("```")[0]
         elif "```" in code:     code = code.split("```")[1].split("```")[0]

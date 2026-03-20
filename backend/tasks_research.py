@@ -78,7 +78,14 @@ async def _update_mongo_session(research_id: str, updates: dict):
         logger.warning("MongoDB update failed: %s", e)
 
 
-async def _save_candidates(research_id: str, scored_candidates: list[dict], generated_code: list[dict], generation: int = 0):
+async def _save_candidates(
+    research_id: str,
+    scored_candidates: list[dict],
+    generated_code: list[dict],
+    generation: int = 0,
+    research_papers: list[dict] | None = None,
+    mechanisms: list[dict] | None = None,
+):
     """Upsert scored candidates into MongoDB."""
     try:
         from motor.motor_asyncio import AsyncIOMotorClient
@@ -112,6 +119,14 @@ async def _save_candidates(research_id: str, scored_candidates: list[dict], gene
                 "base_template"      : meta.get("base_template", ""),
                 "mutations"          : meta.get("mutations", []),
                 "rationale"          : meta.get("rationale", ""),
+                "research_papers"    : [
+                    {"title": p.get("title", ""), "arxiv_id": p.get("arxiv_id", ""), "abstract": p.get("abstract", "")[:400]}
+                    for p in (research_papers or [])
+                ],
+                "mechanisms"         : [
+                    {"name": m.get("name", ""), "description": m.get("description", ""), "sympy_expression": m.get("sympy_expression", ""), "sympy_valid": m.get("sympy_valid", False)}
+                    for m in (mechanisms or [])
+                ],
                 "updated_at"         : _now_iso(),
             }
             await db["research_candidates"].update_one(
@@ -270,7 +285,12 @@ def run_research_generation(self, research_session_id: str, context: dict):
             gen_code   = ctx.get("generated_code", [])
             to_recurse = ctx.get("candidates_to_recurse", [])
 
-            await _save_candidates(research_id, scored, gen_code, generation=generation)
+            await _save_candidates(
+                research_id, scored, gen_code,
+                generation=generation,
+                research_papers=ctx.get("research_papers", []),
+                mechanisms=ctx.get("candidate_mechanisms", []),
+            )
             await _update_mongo_session(research_id, {
                 "status"           : "running",
                 "generation"       : generation,

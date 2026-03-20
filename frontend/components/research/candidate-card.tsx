@@ -5,8 +5,9 @@ import { type ResearchCandidate, compileResearchCandidate } from '@/app/api/plat
 import { Badge } from '@/components/ui/badge'
 import {
   Download, ChevronDown, ChevronUp,
-  Zap, Brain, Sparkles, Shield, BarChart3,
+  Zap, Brain, Sparkles, Shield,
   Cpu, Timer, Layers, Loader2, Info, GitBranch,
+  BookOpen, FlaskConical, ExternalLink,
 } from 'lucide-react'
 
 const ACTION_COLORS: Record<string, string> = {
@@ -57,9 +58,12 @@ interface CandidateCardProps {
 }
 
 export function CandidateCard({ candidate, researchId, rank }: CandidateCardProps) {
-  const [expanded,     setExpanded]     = useState(rank === 0)
-  const [showAbout,    setShowAbout]    = useState(false)
-  const [downloading,  setDownloading]  = useState(false)
+  const [expanded,      setExpanded]      = useState(rank === 0)
+  const [showAbout,     setShowAbout]     = useState(false)
+  const [showLineage,   setShowLineage]   = useState(false)
+  const [downloading,   setDownloading]   = useState(false)
+
+  const hasLineage = (candidate.research_papers?.length ?? 0) > 0 || (candidate.mechanisms?.length ?? 0) > 0
 
   const actionClass = ACTION_COLORS[candidate.next_action] ?? ACTION_COLORS.discard
   const score       = Math.round(candidate.composite_score * 100)
@@ -179,6 +183,76 @@ export function CandidateCard({ candidate, researchId, rank }: CandidateCardProp
                       <p className="mt-0.5 text-xs text-zinc-400">Generation {candidate.generation}</p>
                     </div>
                   )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Research Lineage */}
+          {hasLineage && (
+            <div>
+              <button
+                onClick={() => setShowLineage(x => !x)}
+                className="cursor-pointer flex w-full items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                <BookOpen className="h-3 w-3" />
+                Research lineage
+                <ChevronDown className={`ml-auto h-3 w-3 transition-transform ${showLineage ? 'rotate-180' : ''}`} />
+              </button>
+
+              {showLineage && (
+                <div className="mt-2 space-y-3">
+
+                  {/* Papers */}
+                  {candidate.research_papers && candidate.research_papers.length > 0 && (
+                    <div className="rounded border border-zinc-700/50 bg-zinc-900/60 px-3 py-2.5 space-y-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 flex items-center gap-1">
+                        <BookOpen className="h-3 w-3" /> Papers that informed this design
+                      </p>
+                      {candidate.research_papers.map((paper, i) => (
+                        <div key={i} className="space-y-0.5">
+                          <a
+                            href={`https://arxiv.org/abs/${paper.arxiv_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-start gap-1 text-[11px] font-medium text-blue-400 hover:text-blue-300 transition-colors leading-tight"
+                          >
+                            <ExternalLink className="h-2.5 w-2.5 mt-0.5 shrink-0" />
+                            {paper.title}
+                          </a>
+                          {paper.abstract && (
+                            <p className="text-[10px] text-zinc-500 leading-relaxed pl-3.5 line-clamp-2">{paper.abstract}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Mathematical mechanisms */}
+                  {candidate.mechanisms && candidate.mechanisms.length > 0 && (
+                    <div className="rounded border border-zinc-700/50 bg-zinc-900/60 px-3 py-2.5 space-y-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 flex items-center gap-1">
+                        <FlaskConical className="h-3 w-3" /> Derived mathematical mechanisms
+                      </p>
+                      {candidate.mechanisms.map((mech, i) => (
+                        <div key={i} className="space-y-1 border-t border-zinc-800 pt-2 first:border-t-0 first:pt-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono text-[11px] font-semibold text-purple-400">{mech.name.replace(/_/g, ' ')}</span>
+                            {mech.sympy_valid && (
+                              <span className="rounded border border-purple-500/30 bg-purple-500/10 px-1 py-0 text-[9px] text-purple-400">✓ valid math</span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-zinc-400 leading-relaxed">{mech.description}</p>
+                          {mech.sympy_expression && (
+                            <div className="rounded bg-zinc-950 border border-zinc-800 px-2 py-1">
+                              <code className="font-mono text-[10px] text-amber-300">{mech.sympy_expression}</code>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                 </div>
               )}
             </div>

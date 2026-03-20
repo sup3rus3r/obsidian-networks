@@ -152,10 +152,14 @@ class BaseDomain(ABC):
         self,
         arch_spec: dict,
         llm_caller: Callable[[str], Any],
+        mechanisms: list[dict] | None = None,
+        rationale: str | None = None,
     ) -> str:
         """
         Generate executable Python training code for an architecture spec.
         Code must be self-contained and use synthetic data internally.
+        mechanisms: mathematical mechanisms derived from papers — implement these in the code.
+        rationale: why this architecture was proposed — guides the implementation focus.
         """
         pass
 
@@ -203,3 +207,24 @@ class BaseDomain(ABC):
 
     def list_architectures(self) -> list[str]:
         return list(self.base_templates.keys())
+
+    @staticmethod
+    def _format_mechanism_context(mechanisms: list[dict] | None, rationale: str | None) -> str:
+        """Format mechanism and rationale data for inclusion in generate_code user prompt."""
+        parts: list[str] = []
+        if rationale:
+            parts.append(f"Design rationale (what this mutation is trying to achieve):\n{rationale}")
+        if mechanisms:
+            mech_lines = []
+            for m in mechanisms:
+                line = f"  - {m.get('name', '?')}: {m.get('description', '')}"
+                if m.get("sympy_expression"):
+                    line += f"\n    Math: {m['sympy_expression']}"
+                mech_lines.append(line)
+            parts.append(
+                "Mathematical mechanisms derived from research papers — implement these in the code:\n"
+                + "\n".join(mech_lines)
+                + "\n\nDo NOT just reflect these in comments. Actually implement the specific "
+                "mathematical operations described above where architecturally appropriate."
+            )
+        return "\n\n".join(parts)

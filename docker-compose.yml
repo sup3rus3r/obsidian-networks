@@ -122,6 +122,13 @@ services:
         hard: 65536
     mem_limit: 12g
     memswap_limit: 16g
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   redis:
     image: redis:7-alpine

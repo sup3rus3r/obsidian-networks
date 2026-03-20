@@ -75,7 +75,7 @@ class GraphDomain(BaseDomain):
             "rationale"        : p.get("rationale", ""),
         } for p in proposals]
 
-    async def generate_code(self, arch_spec: dict, llm_caller: Callable) -> str:
+    async def generate_code(self, arch_spec: dict, llm_caller: Callable, mechanisms: list[dict] | None = None, rationale: str | None = None) -> str:
         system = (
             TF_CODE_SYSTEM +
             "\nDOMAIN: Graph neural networks (node classification)."
@@ -85,7 +85,8 @@ class GraphDomain(BaseDomain):
             "TF has no native GNN layers — implement message-passing GCN from scratch using tf.matmul."
             "\nLOSS: sparse_categorical_crossentropy. EPOCHS: 5."
         )
-        prompt = f"Architecture spec to implement:\n{json.dumps(arch_spec, indent=2)}"
+        ctx = self._format_mechanism_context(mechanisms, rationale)
+        prompt = f"Architecture spec to implement:\n{json.dumps(arch_spec, indent=2)}" + (f"\n\n{ctx}" if ctx else "")
         code = await llm_caller(prompt, system=system, force_claude=True, max_tokens=3000)
         if "```python" in code: code = code.split("```python")[1].split("```")[0]
         elif "```" in code:     code = code.split("```")[1].split("```")[0]

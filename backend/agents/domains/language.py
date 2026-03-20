@@ -81,7 +81,7 @@ class LanguageDomain(BaseDomain):
             "rationale"        : p.get("rationale", ""),
         } for p in proposals]
 
-    async def generate_code(self, arch_spec: dict, llm_caller: Callable) -> str:
+    async def generate_code(self, arch_spec: dict, llm_caller: Callable, mechanisms: list[dict] | None = None, rationale: str | None = None) -> str:
         system = (
             TF_CODE_SYSTEM +
             "\nDOMAIN: Language / NLP (text classification)."
@@ -89,7 +89,8 @@ class LanguageDomain(BaseDomain):
             "y = np.random.randint(0, 5, (1000,)).astype(np.int32)"
             "\nLOSS: sparse_categorical_crossentropy. METRICS: accuracy. EPOCHS: 5."
         )
-        prompt = f"Architecture spec to implement:\n{json.dumps(arch_spec, indent=2)}"
+        ctx = self._format_mechanism_context(mechanisms, rationale)
+        prompt = f"Architecture spec to implement:\n{json.dumps(arch_spec, indent=2)}" + (f"\n\n{ctx}" if ctx else "")
         code = await llm_caller(prompt, system=system, force_claude=True, max_tokens=3000)
         if "```python" in code: code = code.split("```python")[1].split("```")[0]
         elif "```" in code:     code = code.split("```")[1].split("```")[0]

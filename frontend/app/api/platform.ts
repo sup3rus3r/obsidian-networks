@@ -184,6 +184,19 @@ export interface ResearchSession {
   created_at         : string
 }
 
+export interface ResearchPaper {
+  title      : string
+  arxiv_id   : string
+  abstract   : string
+}
+
+export interface ResearchMechanism {
+  name             : string
+  description      : string
+  sympy_expression : string
+  sympy_valid      : boolean
+}
+
 export interface ResearchCandidate {
   architecture_name   : string
   composite_score     : number
@@ -201,6 +214,8 @@ export interface ResearchCandidate {
   mutations          ?: string[]
   rationale          ?: string
   code               ?: string
+  research_papers    ?: ResearchPaper[]
+  mechanisms         ?: ResearchMechanism[]
 }
 
 export interface ResearchProgressEvent {

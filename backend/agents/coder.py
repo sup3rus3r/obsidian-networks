@@ -32,9 +32,11 @@ class CoderAgent(BaseAgent):
         from agents.domains import get_domain
         domain_handler = get_domain(domain)
 
+        mechanisms = context.get("candidate_mechanisms", [])
+
         # Generate code for all proposals in parallel
         tasks = [
-            self._generate_single(domain_handler, p, generation, depth)
+            self._generate_single(domain_handler, p, mechanisms, generation, depth)
             for p in proposals
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -56,12 +58,18 @@ class CoderAgent(BaseAgent):
         context["generated_code"] = generated_code
         return context
 
-    async def _generate_single(self, domain_handler, proposal: dict, generation: int, depth: int) -> dict | None:
+    async def _generate_single(self, domain_handler, proposal: dict, mechanisms: list[dict], generation: int, depth: int) -> dict | None:
         arch_name = proposal.get("architecture_name", "unknown")
         arch_spec = proposal.get("spec", {})
+        rationale = proposal.get("rationale", "")
 
         try:
-            code = await domain_handler.generate_code(arch_spec, llm_caller=self.call_llm)
+            code = await domain_handler.generate_code(
+                arch_spec,
+                llm_caller=self.call_llm,
+                mechanisms=mechanisms,
+                rationale=rationale,
+            )
 
             # Safety check
             is_safe, violations = validate_code(code)
