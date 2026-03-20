@@ -28,23 +28,27 @@ ARTIFACTS_DIR = Path(os.environ.get("RESEARCH_ARTIFACTS_DIR", "/research_artifac
 class ResearcherAgent(BaseAgent):
 
     async def run(self, context: dict) -> dict:
-        domain       = context.get("domain", "vision")
-        category_id  = context.get("category_id", domain)
-        dataset_type = context.get("dataset_type", "")
-        generation   = context.get("generation", 0)
-        depth        = context.get("depth", 0)
+        domain           = context.get("domain", "vision")
+        category_id      = context.get("category_id", domain)
+        dataset_type     = context.get("dataset_type", "")
+        task_description = context.get("task_description", "")
+        generation       = context.get("generation", 0)
+        depth            = context.get("depth", 0)
+        failed_patterns  = context.get("failed_patterns", [])
 
         await self.emit_progress("agent_start", "Researcher searching arXiv...", generation, depth)
-        self.log_step("Starting arXiv search", {"domain": domain, "dataset_type": dataset_type})
+        self.log_step("Starting arXiv search", {"domain": domain, "generation": generation})
 
-        # Build two complementary search queries
-        query1 = f"{domain} neural architecture deep learning {dataset_type} 2024"
-        query2 = f"novel {domain} model architecture benchmark {dataset_type}"
-
-        results1, results2 = await asyncio.gather(
-            self.fetch_arxiv_papers(query1, max_results=5),
-            self.fetch_arxiv_papers(query2, max_results=5),
+        # Ask the LLM to generate targeted search queries based on the actual goal
+        # and what has failed in previous generations — same approach as the main platform.
+        queries = await self._generate_search_queries(
+            domain, task_description, generation, failed_patterns
         )
+
+        search_tasks = [self.fetch_arxiv_papers(q, max_results=5) for q in queries]
+        all_results  = await asyncio.gather(*search_tasks)
+
+        results1, results2 = all_results[0], all_results[1] if len(all_results) > 1 else []
 
         # Deduplicate by arxiv_id
         seen   = set()
@@ -55,7 +59,7 @@ class ResearcherAgent(BaseAgent):
                 papers.append(p)
 
         # Select most relevant 3-4 using LLM
-        selected = await self._select_papers(papers, domain, dataset_type)
+        selected = await self._select_papers(papers, domain, task_description or dataset_type)
 
         # Download PDFs
         session_dir = ARTIFACTS_DIR / self.research_session_id
@@ -69,8 +73,13 @@ class ResearcherAgent(BaseAgent):
                 paper["local_pdf"] = str(pdf_path)
                 downloaded.append(paper)
 
-        # Extract research insights
-        insights = await self._extract_insights(downloaded, domain)
+        # Ingest full PDF text into the session vectorstore so downstream agents
+        # can query specific content rather than relying on abstract summaries.
+        session_dir = ARTIFACTS_DIR / self.research_session_id
+        await self._ingest_papers_to_vectorstore(downloaded, session_dir)
+
+        # Extract research insights (used as a lightweight summary in logs/UI)
+        insights = await self._extract_insights(downloaded, domain, task_description)
 
         await self.emit_progress(
             "agent_done",
@@ -82,6 +91,82 @@ class ResearcherAgent(BaseAgent):
         context["research_papers"]   = downloaded
         context["research_insights"] = insights
         return context
+
+    async def _generate_search_queries(
+        self,
+        domain: str,
+        task_description: str,
+        generation: int,
+        failed_patterns: list[dict],
+    ) -> list[str]:
+        """Ask the LLM to generate 2 targeted arXiv search queries for this specific goal."""
+        failed_summary = ""
+        if failed_patterns:
+            failed_mutations = []
+            for f in failed_patterns[-5:]:
+                failed_mutations.extend(f.get("mutations", []))
+            if failed_mutations:
+                failed_summary = f"\nPreviously tried (avoid papers that only cover): {', '.join(set(failed_mutations))}"
+
+        prompt = (
+            f"You are selecting arXiv search queries to find papers for a neural architecture research task.\n\n"
+            f"Domain: {domain}\n"
+            f"Research goal: {task_description}\n"
+            f"Generation: {generation} (0 = first search, higher = need fresh angles){failed_summary}\n\n"
+            f"Generate exactly 2 arXiv search queries that will find the most relevant papers "
+            f"for this specific goal. Queries should be complementary — cover different angles. "
+            f"For generation > 0, search for approaches different from what has been tried.\n\n"
+            f"Return ONLY a JSON array of 2 strings. Example: [\"efficient CNN image classification 2024\", \"attention pooling vision architecture\"]"
+        )
+        try:
+            raw    = await self.call_llm(prompt, force_claude=True, max_tokens=200)
+            start  = raw.find("["); end = raw.rfind("]") + 1
+            import json
+            queries = json.loads(raw[start:end])
+            if isinstance(queries, list) and len(queries) >= 2:
+                return [str(q) for q in queries[:2]]
+        except Exception as e:
+            self.log_step("Query generation failed — using fallback", {"error": str(e)})
+
+        # Fallback if LLM call fails
+        return [
+            f"{task_description[:80]} neural architecture 2024",
+            f"novel {domain} deep learning architecture",
+        ]
+
+    async def _ingest_papers_to_vectorstore(self, papers: list[dict], session_dir: Path) -> None:
+        """Extract full text from downloaded PDFs and ingest into session FAISS vectorstore."""
+        try:
+            import pypdf
+            from vectorstore import ingest_text, get_lock
+        except ImportError:
+            self.log_step("vectorstore/pypdf not available — skipping full-text ingest", {})
+            return
+
+        async with get_lock(str(self.research_session_id)):
+            for paper in papers:
+                pdf_path = paper.get("local_pdf")
+                if not pdf_path:
+                    continue
+                try:
+                    reader = pypdf.PdfReader(pdf_path)
+                    pages  = []
+                    for page in reader.pages:
+                        text = page.extract_text()
+                        if text:
+                            pages.append(text)
+                    full_text = "\n\n".join(pages)
+                    if not full_text.strip():
+                        continue
+                    ingest_text(
+                        session_dir,
+                        full_text,
+                        source_url   = paper.get("url", pdf_path),
+                        source_title = paper.get("title", ""),
+                    )
+                    self.log_step(f"Ingested PDF: {paper.get('title', '')[:60]}", {"chars": len(full_text)})
+                except Exception as e:
+                    self.log_step(f"PDF ingest failed for {paper.get('arxiv_id', '?')}", {"error": str(e)})
 
     async def _select_papers(self, papers: list[dict], domain: str, dataset_type: str) -> list[dict]:
         if len(papers) <= 4:
@@ -125,7 +210,7 @@ Select the 3-4 most relevant by index. Return ONLY a JSON array of integers, e.g
             self.log_step(f"PDF download failed for {paper['arxiv_id']}", {"error": str(e)})
         return None
 
-    async def _extract_insights(self, papers: list[dict], domain: str) -> str:
+    async def _extract_insights(self, papers: list[dict], domain: str, task_description: str = "") -> str:
         if not papers:
             return f"No papers retrieved for domain: {domain}"
 
@@ -133,16 +218,19 @@ Select the 3-4 most relevant by index. Return ONLY a JSON array of integers, e.g
             f"**{p['title']}** ({p['arxiv_id']})\n{p['abstract'][:800]}"
             for p in papers
         )
+        goal_line = f"\nResearch goal: {task_description}" if task_description else ""
         prompt = f"""
-You are an expert {domain} ML researcher. Read these paper abstracts and extract:
+You are an expert {domain} ML researcher.{goal_line}
+
+Read these paper abstracts and extract insights specifically relevant to the research goal above:
 1. Key architectural innovations
 2. Novel training techniques
 3. Benchmark results and what they imply
-4. Mechanisms that could be applied to new architectures
+4. Concrete mechanisms that could be applied to new architectures to achieve the goal
 
 Papers:
 {abstracts}
 
-Write a concise 3-5 paragraph research summary focused on actionable insights for architecture design.
+Write a concise 3-5 paragraph research summary focused on actionable insights for architecture design toward the stated goal.
 """
         return await self.call_llm(prompt, force_claude=True, max_tokens=1500)
