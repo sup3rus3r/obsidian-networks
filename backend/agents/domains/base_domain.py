@@ -77,11 +77,25 @@ class BaseDomain(ABC):
         pass
 
     def get_base_template(self, arch_name: str) -> dict:
-        """Return a deep copy of a base architecture template."""
+        """Return a deep copy of a base architecture template.
+
+        If the exact name is not found (e.g. 'lstm_mutant' from a previous
+        generation's winner), strip common mutation suffixes and try the base
+        name before raising.
+        """
         import copy
+        import re
         template = self.base_templates.get(arch_name)
         if template is None:
-            raise ValueError(f"Unknown architecture '{arch_name}' for domain '{self.name}'")
+            # Strip mutation suffixes: _mutant, _v2, _mutant_v2, etc.
+            base_name = re.sub(r'(_mutant)?(_v\d+)?$', '', arch_name).strip('_')
+            template = self.base_templates.get(base_name)
+        if template is None:
+            # Final fallback: use the first available template
+            if self.base_templates:
+                template = next(iter(self.base_templates.values()))
+            else:
+                raise ValueError(f"Unknown architecture '{arch_name}' for domain '{self.name}'")
         return copy.deepcopy(template)
 
     def list_architectures(self) -> list[str]:

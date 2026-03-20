@@ -69,7 +69,16 @@ class CriticAgent(BaseAgent):
 
         context["scored_candidates"] = scored_candidates
         context["candidates_to_recurse"] = to_recurse
-        context["previous_winner_arch"]  = scored_candidates[0]["architecture_name"] if scored_candidates else None
+        if scored_candidates:
+            winner_name = scored_candidates[0]["architecture_name"]
+            context["previous_winner_arch"] = winner_name
+            # Store the base template name (e.g. "lstm") so the next-generation
+            # Architect can call get_base_template() without crashing on "lstm_mutant".
+            winner_code = code_lookup.get(winner_name, {})
+            context["previous_winner_base_arch"] = winner_code.get("base_template") or winner_name
+        else:
+            context["previous_winner_arch"] = None
+            context["previous_winner_base_arch"] = None
         return context
 
     async def _score_candidate(

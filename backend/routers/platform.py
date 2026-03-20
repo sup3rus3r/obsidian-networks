@@ -505,6 +505,17 @@ def _validate_script(script: str) -> list[str]:
         script,
     ))
 
+    # Description-mode scripts (CNN, ViT, Transformer, Video, etc.) generate their
+    # own synthetic data internally and correctly have no dataset file reference.
+    # Detect by the presence of synthetic tensor / array generation calls.
+    is_synthetic = bool(re.search(
+        r'tf\.random\.(normal|uniform|randint|truncated_normal)\s*\('  # TF random tensors
+        r'|np\.random\.(randn|rand\b|randint|normal|uniform)\s*\('     # NumPy random arrays
+        r'|tf\.zeros\s*\(|tf\.ones\s*\('                               # explicit zero/one tensors
+        r'|np\.zeros\s*\(|np\.ones\s*\(',                              # NumPy zero/one arrays
+        script,
+    ))
+
     # ── Required structural elements ──────────────────────────────────────────
     if is_rl:
         # RL: must have some kind of training loop (for/while loop calling step or update)
@@ -526,7 +537,9 @@ def _validate_script(script: str) -> list[str]:
                     f"Use .save('output/{path}') instead."
                 )
 
-    if "dataset.csv" not in script and "dataset.json" not in script:
+    # Dataset reference check: skip for RL (custom loops) and description-mode
+    # scripts that correctly generate their own synthetic data with no file upload.
+    if not is_rl and not is_synthetic and "dataset.csv" not in script and "dataset.json" not in script:
         errors.append(
             "Script does not reference 'dataset.csv' or 'dataset.json'. "
             "Use DATA_PATH = 'dataset.csv' — do not use the original uploaded filename."

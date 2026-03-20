@@ -22,13 +22,14 @@ const ACTION_LABELS: Record<string, string> = {
 }
 
 interface ScoreBarProps {
-  label : string
-  value : number
-  Icon  : React.ElementType
-  color : string
+  label    : string
+  value    : number
+  Icon     : React.ElementType
+  color    : string   // Tailwind text-* class for icon + label
+  barColor : string   // explicit hex for the bar fill (avoids Tailwind purge issues)
 }
 
-function ScoreBar({ label, value, Icon, color }: ScoreBarProps) {
+function ScoreBar({ label, value, Icon, color, barColor }: ScoreBarProps) {
   const pct = Math.round(value * 100)
   return (
     <div className="space-y-1">
@@ -41,8 +42,8 @@ function ScoreBar({ label, value, Icon, color }: ScoreBarProps) {
       </div>
       <div className="h-1 w-full rounded-full bg-zinc-800">
         <div
-          className={`h-full rounded-full transition-all duration-500 ${color.replace('text-', 'bg-')}`}
-          style={{ width: `${pct}%` }}
+          className="h-full rounded-full transition-all duration-500"
+          style={{ width: `${pct}%`, backgroundColor: barColor }}
         />
       </div>
     </div>
@@ -132,10 +133,46 @@ export function CandidateCard({ candidate, researchId, rank }: CandidateCardProp
           {/* Score breakdown */}
           <div className="space-y-2">
             <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-600">Score Breakdown</p>
-            <ScoreBar label="Novelty"         value={candidate.novelty_score}         Icon={Sparkles}  color="text-purple-400" />
-            <ScoreBar label="Efficiency"      value={candidate.efficiency_score}      Icon={Zap}       color="text-amber-400" />
-            <ScoreBar label="Soundness"       value={candidate.soundness_score}       Icon={Shield}    color="text-blue-400" />
-            <ScoreBar label="Generalization"  value={candidate.generalization_score}  Icon={Brain}     color="text-[#39FF14]" />
+            <ScoreBar
+              label="Novelty"
+              value={candidate.novelty_score}
+              Icon={Sparkles}
+              color="text-purple-400"
+              barColor="#c084fc"
+            />
+            <p className="text-[10px] text-zinc-600 leading-relaxed -mt-1 pl-4">
+              How different this architecture is from previously discovered ones. Measured by embedding distance in the FAISS novelty index.
+            </p>
+            <ScoreBar
+              label="Efficiency"
+              value={candidate.efficiency_score}
+              Icon={Zap}
+              color="text-amber-400"
+              barColor="#fbbf24"
+            />
+            <p className="text-[10px] text-zinc-600 leading-relaxed -mt-1 pl-4">
+              Resource efficiency — lower memory usage, faster inference, fewer parameters, and shorter training time all increase this score.
+            </p>
+            <ScoreBar
+              label="Soundness"
+              value={candidate.soundness_score}
+              Icon={Shield}
+              color="text-blue-400"
+              barColor="#60a5fa"
+            />
+            <p className="text-[10px] text-zinc-600 leading-relaxed -mt-1 pl-4">
+              LLM judge rating of theoretical correctness — does the architecture make sense, are there obvious design flaws, is the training loss reasonable?
+            </p>
+            <ScoreBar
+              label="Generalization"
+              value={candidate.generalization_score}
+              Icon={Brain}
+              color="text-[#39FF14]"
+              barColor="#39FF14"
+            />
+            <p className="text-[10px] text-zinc-600 leading-relaxed -mt-1 pl-4">
+              How well the trained model performs on a held-out validation set. High generalization means the architecture avoids overfitting.
+            </p>
           </div>
 
           {/* Hardware metrics */}

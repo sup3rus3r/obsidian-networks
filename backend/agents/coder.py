@@ -81,6 +81,7 @@ class CoderAgent(BaseAgent):
                 "framework"        : "tensorflow",
                 "param_count"      : param_count,
                 "spec"             : arch_spec,
+                "base_template"    : proposal.get("base_template", ""),
             }
 
         except Exception as e:

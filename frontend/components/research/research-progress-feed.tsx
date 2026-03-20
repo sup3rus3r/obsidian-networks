@@ -6,7 +6,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   FlaskConical, Brain, Code2, Cpu, BarChart3,
   CheckCircle2, XCircle, Loader2, ChevronRight,
-  BookOpen, FunctionSquare, Layers, Zap,
+  BookOpen, FunctionSquare, Layers, Zap, ChevronDown,
 } from 'lucide-react'
 
 interface ProgressEvent {
@@ -62,40 +62,93 @@ function AgentBadge({ name }: { name: string }) {
   )
 }
 
-function EventRow({ event, idx }: { event: ProgressEvent; idx: number }) {
-  const type = event.event_type ?? ''
-  const Icon = EVENT_ICONS[type] ?? ChevronRight
-  const color = EVENT_COLORS[type] ?? 'text-zinc-400'
-  const isSpinner = type === 'agent_start' || type.endsWith('_start')
-  const time = new Date(event.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+function EventRow({
+  event,
+  idx,
+  allEvents,
+}: {
+  event    : ProgressEvent
+  idx      : number
+  allEvents: ProgressEvent[]
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const type    = event.event_type ?? ''
+  const Icon    = EVENT_ICONS[type] ?? ChevronRight
+  const color   = EVENT_COLORS[type] ?? 'text-zinc-400'
+  const time    = new Date(event.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+
+  // Spinner only while the corresponding _done event hasn't arrived yet
+  const isStartEvent = type === 'agent_start' || type.endsWith('_start')
+  const doneType     = isStartEvent
+    ? (type === 'agent_start' ? 'agent_done' : type.replace('_start', '_done'))
+    : null
+  const isCompleted  = doneType
+    ? allEvents.slice(idx + 1).some(e => e.event_type === doneType)
+    : false
+  const shouldSpin   = isStartEvent && !isCompleted
+
+  const hasData = event.data && Object.keys(event.data).length > 0
 
   return (
-    <div className="flex items-start gap-2.5 py-1.5 border-b border-zinc-800/50 last:border-0">
-      <span className="mt-0.5 shrink-0">
-        <Icon className={`h-3.5 w-3.5 ${color} ${isSpinner && event.event_type !== 'agent_done' ? 'animate-spin' : ''}`} />
-      </span>
-      <div className="flex-1 min-w-0">
-        <p className={`text-xs leading-snug ${color}`}>
-          {event.message || type.replace(/_/g, ' ')}
-        </p>
-        {event.data && Object.keys(event.data).length > 0 && (
-          <div className="mt-1 flex flex-wrap gap-1">
-            {Object.entries(event.data).slice(0, 4).map(([k, v]) => (
-              <span key={k} className="text-[10px] text-zinc-600">
-                {k}: <span className="text-zinc-400 font-mono">{String(v).slice(0, 30)}</span>
-              </span>
-            ))}
-          </div>
-        )}
-        {event.generation !== undefined && (
-          <div className="mt-0.5 flex items-center gap-2">
+    <div className="border-b border-zinc-800/50 last:border-0">
+      <div
+        className={`flex items-start gap-2.5 py-1.5 ${hasData ? 'cursor-pointer hover:bg-zinc-800/30' : ''}`}
+        onClick={() => hasData && setExpanded(x => !x)}
+      >
+        <span className="mt-0.5 shrink-0">
+          <Icon className={`h-3.5 w-3.5 ${color} ${shouldSpin ? 'animate-spin' : ''}`} />
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className={`text-xs leading-snug ${color}`}>
+            {event.message || type.replace(/_/g, ' ')}
+          </p>
+          {/* Preview: first 2 data keys inline, rest hidden until expanded */}
+          {hasData && !expanded && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {Object.entries(event.data!).slice(0, 2).map(([k, v]) => (
+                <span key={k} className="text-[10px] text-zinc-600">
+                  {k}: <span className="text-zinc-400 font-mono">{String(v).slice(0, 40)}</span>
+                </span>
+              ))}
+              {Object.keys(event.data!).length > 2 && (
+                <span className="text-[10px] text-zinc-700">+{Object.keys(event.data!).length - 2} more</span>
+              )}
+            </div>
+          )}
+          {event.generation !== undefined && (
             <span className="text-[10px] text-zinc-700">
               gen <span className="font-mono text-zinc-600">{event.generation}</span>
             </span>
-          </div>
-        )}
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="font-mono text-[10px] text-zinc-700">{time}</span>
+          {hasData && (
+            <ChevronDown className={`h-3 w-3 text-zinc-600 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+          )}
+        </div>
       </div>
-      <span className="shrink-0 font-mono text-[10px] text-zinc-700">{time}</span>
+
+      {/* Expanded detail panel */}
+      {expanded && hasData && (
+        <div className="ml-6 mb-2 rounded border border-zinc-700/50 bg-zinc-900 px-3 py-2">
+          {Object.entries(event.data!).map(([k, v]) => {
+            const displayVal = Array.isArray(v)
+              ? (v as unknown[]).join(', ')
+              : typeof v === 'object' && v !== null
+                ? JSON.stringify(v, null, 2)
+                : String(v)
+            return (
+              <div key={k} className="mb-1.5 last:mb-0">
+                <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wide">{k}</span>
+                <pre className="mt-0.5 whitespace-pre-wrap break-all font-mono text-[10px] text-zinc-300 leading-relaxed">
+                  {displayVal}
+                </pre>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
@@ -192,7 +245,7 @@ export function ResearchProgressFeed({ researchId, onComplete, onError }: Resear
           </div>
         )}
         {events.map((event, i) => (
-          <EventRow key={i} event={event} idx={i} />
+          <EventRow key={i} event={event} idx={i} allEvents={events} />
         ))}
         <div ref={bottomRef} />
       </ScrollArea>

@@ -35,10 +35,17 @@ class ArchitectAgent(BaseAgent):
         domain_handler = get_domain(domain)
         base_archs     = domain_handler.list_architectures()
 
-        # If recursing (depth > 0), also consider winning arch from previous generation
-        prev_winner = context.get("previous_winner_arch")
-        if prev_winner and depth > 0:
-            base_archs = [prev_winner] + base_archs
+        # If recursing (depth > 0), seed with the winning base template from previous generation.
+        # Use previous_winner_base_arch (e.g. "lstm") not previous_winner_arch ("lstm_mutant")
+        # so that get_base_template() can look it up in domain.base_templates.
+        prev_winner_base = context.get("previous_winner_base_arch") or context.get("previous_winner_arch")
+        if prev_winner_base and depth > 0:
+            # Only prepend if it's a known base template; avoid duplicates
+            if prev_winner_base not in base_archs:
+                base_archs = [prev_winner_base] + base_archs
+            else:
+                # Already in list — move it to front so it's prioritised
+                base_archs = [prev_winner_base] + [a for a in base_archs if a != prev_winner_base]
 
         all_proposals = []
         for base_arch in base_archs[:2]:  # max 2 base archs per generation

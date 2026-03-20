@@ -286,10 +286,11 @@ def run_research_generation(self, research_session_id: str, context: dict):
                 })
                 next_context = dict(context)
                 next_context.update({
-                    "generation"             : next_gen,
-                    "depth"                  : context.get("depth", 0) + 1,
-                    "previous_winner_arch"   : ctx.get("previous_winner_arch"),
-                    "candidates_to_recurse"  : to_recurse,
+                    "generation"              : next_gen,
+                    "depth"                   : context.get("depth", 0) + 1,
+                    "previous_winner_arch"    : ctx.get("previous_winner_arch"),
+                    "previous_winner_base_arch": ctx.get("previous_winner_base_arch"),
+                    "candidates_to_recurse"   : to_recurse,
                 })
                 run_research_generation.apply_async(
                     kwargs = dict(research_session_id=research_id, context=next_context),
