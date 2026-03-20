@@ -253,9 +253,7 @@ function createPlanningTools(sessionId: string | null) {
       description:
         'Call this when the user approves the plan (says "looks good", "approved", "proceed", "go ahead", etc.). ' +
         'Transitions the session to approved state. ' +
-        'CRITICAL: After calling this, you MUST stop immediately and reply with a short confirmation message. ' +
-        'Do NOT call query_research, produce_plan, edit_script, or create_notebook in the same turn. ' +
-        'The build tools (edit_script, create_notebook) only become available in the NEXT user turn.',
+        'After calling this, immediately proceed with the build sequence — do NOT wait for another user message.',
       inputSchema: z.object({}),
       execute: async () => {
         if (!sessionId) return { error: 'No active session' }
@@ -269,7 +267,7 @@ function createPlanningTools(sessionId: string | null) {
           const data = await res.json()
           return {
             ...data,
-            next_action: 'STOP. Reply to the user with one sentence confirming the plan is approved and you will now build the script. Do NOT call any other tools in this turn.',
+            next_action: 'Plan approved. Proceed immediately with the BUILD SEQUENCE: STEP 1 (dataset mode only) run_code to inspect dataset, STEP 2 edit_script to write the full training script, STEP 3 create_notebook. Do not pause or ask the user anything.',
           }
         } catch (e) {
           return { error: String(e) }
@@ -788,13 +786,15 @@ export async function POST(req: Request) {
         produce_plan    : lockedTool('produce_plan',    'Planning is complete. Call edit_script to write the training script, then call create_notebook.'),
       }
     : sessionPhase === 'planning'
-    // PLANNING phase: query, plan, approve.
-    // edit_script and create_notebook are locked stubs so the model gets a recovery
-    // instruction if it tries to jump ahead before the plan is approved.
+    // PLANNING phase: all planning tools + build tools.
+    // Build tools are included so that when approve_plan is called within this turn,
+    // the model can immediately proceed to edit_script → create_notebook without
+    // requiring an extra round-trip from the user.
+    // produce_plan is a locked stub in build phase; here it's real.
     ? {
         ...createPlanningTools(sessionId),
-        edit_script     : lockedTool('edit_script',     'The plan has not been approved yet. Call produce_plan to submit the plan, then wait for the user to approve it.'),
-        create_notebook : lockedTool('create_notebook', 'The plan has not been approved yet. Call produce_plan to submit the plan, then wait for the user to approve it.'),
+        ...createScriptTools(sessionId),
+        create_notebook: createNotebookTool(sessionId),
       }
     // RESEARCH phase (idle / researching): research + finalize only
     : createResearchTools(sessionId)
