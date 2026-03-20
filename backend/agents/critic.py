@@ -19,7 +19,7 @@ from .core import BaseAgent
 
 logger = logging.getLogger(__name__)
 
-RECURSE_THRESHOLD = 0.55   # top candidates seed next generation
+RECURSE_THRESHOLD = 0.40   # top candidates seed next generation
 ARCHIVE_THRESHOLD = 0.25   # anything scoreable is worth showing
 
 

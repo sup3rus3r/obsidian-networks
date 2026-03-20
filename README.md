@@ -101,6 +101,89 @@ This is architecture search that used to require a dedicated research team. Now 
 
 ---
 
+## GPU Acceleration
+
+Autonomous Research Mode runs on CPU by default. This is fine for exploring how the system works, but CPU training produces weak metrics — which means lower scores, less recursion, and a leaderboard that reflects infrastructure limits more than architecture quality. For real research runs, attach a GPU.
+
+Three options are supported. Set the relevant variables in your `.env` file.
+
+---
+
+### Option 1 — Local GPU (NVIDIA)
+
+If your machine has an NVIDIA GPU and [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) installed:
+
+**`.env`**
+```env
+TRAINING_DOCKER_IMAGE=obsidian-trainer:latest
+RESEARCH_ARTIFACTS_DIR=/research_artifacts
+```
+
+**`docker-compose.yml`** — add this to the `research-worker` service:
+```yaml
+research-worker:
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+```
+
+Then rebuild:
+```bash
+docker compose up --build
+```
+
+---
+
+### Option 2 — RunPod (Serverless Cloud GPU)
+
+[RunPod](https://www.runpod.io) lets you run GPU jobs on demand and pay only for what you use. No idle cost between research sessions.
+
+1. Create an account at [runpod.io](https://www.runpod.io)
+2. Deploy a serverless endpoint using the Obsidian worker image
+3. Copy your API key from **Settings → API Keys** and your endpoint ID from the serverless dashboard
+
+**`.env`**
+```env
+RUNPOD_API_KEY=your_runpod_api_key
+RUNPOD_ENDPOINT_ID=your_endpoint_id
+```
+
+No changes to `docker-compose.yml` needed.
+
+---
+
+### Option 3 — Lambda Labs (On-Demand Cloud GPU)
+
+[Lambda Labs](https://lambdalabs.com) offers on-demand GPU instances at competitive rates.
+
+1. Create an account at [lambdalabs.com](https://lambdalabs.com)
+2. Generate an API key from **API Keys** in your dashboard
+
+**`.env`**
+```env
+LAMBDA_API_KEY=your_lambda_api_key
+```
+
+No changes to `docker-compose.yml` needed.
+
+---
+
+### Priority Order
+
+When a research session starts, the platform picks the first available provider in this order:
+
+```
+Local Docker GPU → RunPod → Lambda Labs → CPU fallback
+```
+
+CPU fallback always runs — it just produces limited training results. If you have cloud credentials set, they will be used automatically when a local GPU is not available.
+
+---
+
 ## It Fixes Its Own Mistakes
 
 Code fails sometimes. That is not a problem here. When something does not compile or run correctly, the platform diagnoses what went wrong, rewrites what it needs to, and tries again — on its own, without you having to do anything. You will see it happen in the chat. By the time you look back, it has usually already fixed it.
@@ -185,6 +268,12 @@ All configuration lives in the `.env` file at the repo root.
 | `MAX_MEMORY_GB` | `12` | Maximum memory the training worker can use |
 | `MAX_EPOCHS` | `200` | Maximum number of training epochs any generated script can run |
 | `NEXT_PUBLIC_UPLOAD_URL` | `http://localhost:8000` | The backend URL used for large file uploads. Change this to your server's public address when deploying |
+| `TRAINING_DOCKER_IMAGE` | — | Local GPU: the Docker image used for training jobs (requires nvidia-container-toolkit) |
+| `RESEARCH_ARTIFACTS_DIR` | `/research_artifacts` | Where training checkpoints and outputs are stored |
+| `RUNPOD_API_KEY` | — | RunPod serverless GPU: API key from your RunPod dashboard |
+| `RUNPOD_ENDPOINT_ID` | — | RunPod serverless GPU: endpoint ID from your RunPod serverless console |
+| `LAMBDA_API_KEY` | — | Lambda Labs GPU: API key from your Lambda dashboard |
+| `GPU_POLL_INTERVAL_S` | `15` | How often (in seconds) to check on remote GPU job status |
 
 ---
 
