@@ -23,7 +23,7 @@ Autonomous Research Mode goes further — instead of solving one problem, it run
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=next.js&logoColor=white)](https://nextjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.128+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![TensorFlow](https://img.shields.io/badge/TensorFlow-2.16+-FF6F00?logo=tensorflow&logoColor=white)](https://www.tensorflow.org/)
+[![TensorFlow](https://img.shields.io/badge/TensorFlow-2.18+-FF6F00?logo=tensorflow&logoColor=white)](https://www.tensorflow.org/)
 [![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)](https://redis.io/)
 
 ---
@@ -78,15 +78,43 @@ That is the whole process. No configuration. No expertise required. No waiting o
 
 ## Autonomous Research Mode
 
-Beyond building a single model, Obsidian Networks includes an Autonomous Research Mode — a continuously running architecture discovery engine that explores an entire design space on your behalf.
+Beyond building a single model, Obsidian Networks includes an Autonomous Research Mode — a multi-generation architecture discovery engine that searches an entire design space on your behalf, grounded in real academic research at every step.
 
-You set a goal and a modality (vision, text, audio, time series, graph, multimodal, tabular, recommendation, or generative). Eight specialised AI agents then run in a coordinated loop:
+You set a domain (vision, text, audio, time series, graph, multimodal, tabular, recommendation, or generative), a research goal in plain language, and how many candidates and generations to run. Eight specialised AI agents then execute in a coordinated pipeline:
 
-**Researcher → Mathematician → Architect → Coder → Trainer → Evaluator → Validator → Critic**
+### The Pipeline
 
-Each generation produces a population of candidate architectures. The Critic scores every candidate on novelty, efficiency, soundness, and generalisation — then recurses on the top performers. The entire process runs autonomously. You watch a live feed of agent activity and, when it finishes, browse a ranked leaderboard of discovered architectures — each one downloadable as a production training script.
+**1. Researcher** — Searches arXiv with multiple query angles, deduplicates results, selects the 3–4 most relevant papers for your specific goal using an LLM, downloads the PDFs, and extracts a concise research summary of actionable insights for architecture design.
 
-This is architecture search that used to require a dedicated research team. Now it runs overnight on your own hardware.
+**2. Mathematician** — Reads the research summary and derives novel mathematical mechanisms from it — concrete ideas with names, descriptions, and symbolic expressions in SymPy syntax (e.g. `softmax(Q_t @ K_t.T / sqrt(d)) @ V_t`). These are validated against the SymPy library to ensure the expressions are real mathematics, not hallucinations.
+
+**3. Architect** — Takes the validated mechanisms and proposes architecture mutations against base domain templates (CNNs, Transformers, LSTMs, GANs, GNNs, etc.). Crucially, it knows which mutation combinations have already failed in previous generations and is explicitly instructed to avoid repeating them.
+
+**4. Coder** — Generates a complete, self-contained TensorFlow/Keras training script for each proposed architecture. The mathematical mechanisms derived from the papers are embedded directly into the code prompt — not just described, but actually implemented as mathematical operations where architecturally appropriate.
+
+**5. Trainer** — Runs each generated script in an isolated subprocess. Captures training metrics, hardware usage, parameter counts, and training time. Automatically diagnoses and retries on recoverable failures (syntax errors, import issues, dimension mismatches).
+
+**6. Evaluator** — Loads the trained checkpoint and evaluates it on held-out synthetic test data appropriate for the domain. Returns domain-specific metrics: accuracy for classification, MSE for regression and forecasting, reconstruction loss for generative models, node accuracy for graphs.
+
+**7. Validator** — Checks each architecture against multiple soundness dimensions: output shape correctness, parameter count, generalisation gap between training and validation loss, inference speed. Flags architectures that trained successfully but have fundamental structural problems.
+
+**8. Critic** — Scores every candidate on four axes: **Novelty** (how different is this from known base templates?), **Efficiency** (parameter count and inference speed relative to performance), **Soundness** (architectural correctness and stability), **Generalization** (gap between training and validation loss). Decides which candidates are worth recursing on in the next generation.
+
+### How Generations Work
+
+After each generation, the top-scoring candidates seed the next one — the Architect prioritises their base templates and the Mathematician derives new mechanisms to push them further. Candidates that scored poorly are recorded as **failure patterns** (name, mutations tried, score, reason) and passed forward so the Architect never repeats the same dead ends.
+
+If a generation produces no candidates worth recursing on, the session does not stop. Instead it runs fresh exploration — clearing the previous winner context, exploring new base architectures — and continues until it reaches the generation limit you set. You control both the number of candidates per generation and the maximum number of generations, either via slider (up to 20) or by typing any number directly.
+
+### Research Lineage
+
+Every candidate card shows its full research lineage: which papers informed the design, what mathematical mechanisms were derived from them (including their SymPy expressions), and the rationale for why those specific mutations were proposed. This is not post-hoc explanation — the papers and mechanisms are the actual inputs to the code generator.
+
+### What You See
+
+A live feed of agent activity as each generation runs. When it completes, a ranked leaderboard of discovered architectures with score breakdowns, training metrics, and research lineage. Every architecture is downloadable as a production training script.
+
+This is architecture search that used to require a dedicated research team and months of ablation studies. Now it runs overnight on your own hardware.
 
 ---
 
@@ -322,7 +350,7 @@ Try: *"Forecast energy consumption for the next 24 hours using an LSTM."*
 | AI / Streaming | Vercel AI SDK 6, Anthropic / OpenAI / LM Studio |
 | Backend API | FastAPI, Python 3.11 |
 | Task Queue | Celery 5, Redis 7 |
-| ML Runtime | TensorFlow 2.16+, Keras 3, NumPy, Pandas, scikit-learn, Gymnasium |
+| ML Runtime | TensorFlow 2.18+, Keras 3, NumPy 2.x, Pandas, scikit-learn, Gymnasium |
 | Research | FAISS vector store, sentence-transformers, pypdf, arXiv API, Context7 |
 | Research Mode | 8-agent autonomous loop, MongoDB, FAISS novelty index |
 | Deployment | Docker, Docker Compose |
