@@ -280,12 +280,39 @@ function createPlanningTools(sessionId: string | null) {
 function createScriptTools(sessionId: string | null) {
   const apiBase = process.env.INTERNAL_API_URL ?? 'http://localhost:8000'
 
+  const pip_install = tool({
+    description:
+      'Install or downgrade a Python package in the execution environment. ' +
+      'Use this ONLY to fix package version conflicts that prevent the script from running ' +
+      '(e.g. numpy/ml_dtypes incompatibility). ' +
+      'Example: pip_install({ package: "numpy>=1.26,<2.0" }). ' +
+      'After a successful install, retry the failing step.',
+    inputSchema: z.object({
+      package: z.string().describe('Package spec, e.g. "numpy>=1.26,<2.0" or "tensorflow-cpu==2.16.1"'),
+    }),
+    execute: async (input: { package: string }) => {
+      if (!sessionId) return { ok: false, stdout: 'No active session.' }
+      try {
+        const res = await fetch(`${apiBase}/platform/pip_install/${sessionId}`, {
+          method : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body   : JSON.stringify({ package: input.package }),
+          signal : AbortSignal.timeout(130_000),
+        })
+        return await res.json()
+      } catch (e) {
+        return { ok: false, stdout: String(e) }
+      }
+    },
+  })
+
   const run_code = tool({
     description:
       'Execute a Python snippet in the session working directory and return the output. ' +
       'Use this to test data loading, inspect column names/shapes/dtypes, and validate ' +
       'logic before writing the full script. Has access to dataset.csv and all installed packages. ' +
-      '30-second timeout — not for full training runs.',
+      '30-second timeout — not for full training runs. ' +
+      'NOTE: subprocess and os.system are blocked here — use pip_install tool for package fixes.',
     inputSchema: z.object({
       code: z.string().describe('Python snippet to execute'),
     }),
@@ -350,7 +377,7 @@ function createScriptTools(sessionId: string | null) {
     },
   })
 
-  return { run_code, read_script, edit_script }
+  return { pip_install, run_code, read_script, edit_script }
 }
 
 function createNotebookTool(sessionId: string | null) {
@@ -509,7 +536,7 @@ You support two modes of operation:
 - CRITICAL — For video models: generate synthetic clip tensors with tf.random.normal(shape=(N, frames, H, W, C)). Use Conv3D or ConvLSTM2D. NEVER manually loop over frames with separate 2D convolutions unless the architecture specifically requires it.
 - CRITICAL — For Transformers / ViT: implement the full attention mechanism using tensorflow.keras layers (MultiHeadAttention, LayerNormalization, Dense). For ViT, use Conv2D with stride=patch_size to extract patches — NEVER use a for-loop over patches. For text transformers, use tensorflow.keras.layers.Embedding + positional encoding.
 - For all description-mode models (no dataset): the script MUST demonstrate a complete forward pass and at least one training step using the synthetic data, saving the model to output/model.keras.
-- CRITICAL — NEVER add subprocess, os.system, pip install, os.popen, or eval/exec calls anywhere in the training script or in run_code snippets. These are blocked by the platform security validator and will always fail. The execution environment has all required packages pre-installed. If you see a package version error (e.g. numpy/ml_dtypes conflict), it is a local environment misconfiguration — STOP immediately and tell the user to run this in their terminal: pip install "numpy>=1.26,<2.0"
+- CRITICAL — NEVER add subprocess, os.system, os.popen, or eval/exec calls anywhere in the training script or in run_code snippets — these are blocked by the security validator. If you encounter a package version error (e.g. numpy/ml_dtypes conflict), use the pip_install tool: pip_install({ package: "numpy>=1.26,<2.0" }). Then retry. Do NOT loop through run_code trying different workarounds.
 </constraints>
 
 <plan_template>

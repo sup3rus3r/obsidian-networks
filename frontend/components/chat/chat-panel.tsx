@@ -290,14 +290,16 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     // Inject an assistant message directly without triggering the AI.
     // Used for environment errors the AI cannot fix (e.g. numpy version conflicts).
     sendEnvError: (message: string) => {
+      const part = { type: 'text' as const, text: message }
       setMessages(prev => [
         ...prev,
         {
-          id     : `env-err-${Date.now()}`,
-          role   : 'assistant',
-          content: [{ type: 'text', text: message }],
+          id       : `env-err-${Date.now()}`,
+          role     : 'assistant',
+          content  : [part],
+          parts    : [part],
           createdAt: new Date(),
-        } as UIMessage,
+        } as unknown as UIMessage,
       ])
     },
   }), [sendMessage, setMessages])

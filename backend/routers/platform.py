@@ -952,6 +952,44 @@ async def edit_script(session_id: str, payload: dict):
     return {"ok": True, "message": f"Script updated ({lines} lines). Call create_notebook when ready."}
 
 
+@router.post("/pip_install/{session_id}")
+async def pip_install(session_id: str, payload: dict):
+    """Install or downgrade a Python package in the current environment.
+
+    Used by the AI to fix package version conflicts (e.g. numpy/ml_dtypes).
+    Runs pip as a subprocess — bypasses script validator since this is a
+    controlled API call, not user-generated model code.
+    """
+    import asyncio
+    import subprocess as _sp
+
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or expired")
+
+    package = (payload.get("package") or "").strip()
+    if not package or len(package) > 200:
+        raise HTTPException(status_code=400, detail="Invalid package spec")
+
+    # Only allow safe package specs: letters, digits, -, _, ., >, <, =, ", ', space
+    import re as _re
+    if not _re.match(r'^[\w\-\.\>\<=\s"\']+$', package):
+        raise HTTPException(status_code=400, detail="Invalid characters in package spec")
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "pip", "install", package, "--quiet",
+            stdout=_sp.PIPE, stderr=_sp.STDOUT,
+        )
+        stdout_bytes, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
+        stdout = stdout_bytes.decode(errors="replace")
+        return {"ok": proc.returncode == 0, "stdout": stdout[-500:], "exit_code": proc.returncode}
+    except asyncio.TimeoutError:
+        return {"ok": False, "stdout": "Timed out after 120s", "exit_code": 1}
+    except Exception as e:
+        return {"ok": False, "stdout": str(e), "exit_code": 1}
+
+
 @router.post("/run_code/{session_id}")
 async def run_code(session_id: str, payload: dict):
     """Execute a Python snippet in the session directory and return stdout/stderr.
