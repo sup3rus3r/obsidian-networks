@@ -519,7 +519,7 @@ function CompileSection({
             fetch(`/api/platform/pip_install/${sessionId}`, {
               method : 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body   : JSON.stringify({ package: 'numpy>=2.0,<3.0 tensorflow-cpu>=2.17,<2.18' }),
+              body   : JSON.stringify({ package: 'numpy>=2.0 tensorflow-cpu>=2.18.0' }),
             }).then(() => {
               // Retry compile automatically after env fix
               setCompile({ phase: 'idle', progress: 0, step: '', detail: null, error: null })
