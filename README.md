@@ -84,9 +84,9 @@ You set a domain (vision, text, audio, time series, graph, multimodal, tabular, 
 
 ### The Pipeline
 
-**1. Researcher** — Searches arXiv with multiple query angles, deduplicates results, selects the 3–4 most relevant papers for your specific goal using an LLM, downloads the PDFs, and extracts a concise research summary of actionable insights for architecture design.
+**1. Researcher** — Uses an LLM to generate targeted arXiv search queries from your specific research goal — not generic domain keywords. The model reads your goal, considers what has failed in previous generations, and writes queries designed to find papers that are actually relevant. It then reads the abstracts, selects the 3–4 most relevant papers, downloads the full PDFs, extracts the complete text (methods sections, equations, pseudocode, results), and chunks it into a per-session FAISS vector store. Papers accumulate across generations, so later generations have a richer store to draw from.
 
-**2. Mathematician** — Reads the research summary and derives novel mathematical mechanisms from it — concrete ideas with names, descriptions, and symbolic expressions in SymPy syntax (e.g. `softmax(Q_t @ K_t.T / sqrt(d)) @ V_t`). These are validated against the SymPy library to ensure the expressions are real mathematics, not hallucinations.
+**2. Mathematician** — Queries the session vector store with targeted questions about mathematical mechanisms, attention formulations, loss functions, and novel training objectives. Gets back actual content from the papers — real equations and methods sections — not abstract summaries. Derives concrete mechanisms with names, descriptions, and symbolic expressions in SymPy syntax (e.g. `softmax(Q_t @ K_t.T / sqrt(d)) @ V_t`), validated against the SymPy library to ensure they are real mathematics, not hallucinations.
 
 **3. Architect** — Takes the validated mechanisms and proposes architecture mutations against base domain templates (CNNs, Transformers, LSTMs, GANs, GNNs, etc.). Crucially, it knows which mutation combinations have already failed in previous generations and is explicitly instructed to avoid repeating them.
 
