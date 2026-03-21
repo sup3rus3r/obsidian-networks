@@ -2,11 +2,10 @@
 ResearcherAgent — fetches and indexes arXiv papers for the current domain/task.
 
 Steps:
-1. Search arXiv with 2 different query angles
-2. Select top 3-4 most relevant papers by abstract
-3. Download PDFs and store locally
-4. Extract key insights via LLM
-5. Return updated context with research_papers + research_insights
+1. Generate N independent query pairs (one per candidate slot) covering different literature angles
+2. For each slot: search arXiv, select top papers, download PDFs, extract insights
+3. Store per-slot results so each candidate draws from different papers → different mechanisms
+4. Return research_paper_sets + research_insight_sets (plus backward-compat single-slot keys)
 """
 from __future__ import annotations
 
@@ -29,68 +28,148 @@ class ResearcherAgent(BaseAgent):
 
     async def run(self, context: dict) -> dict:
         domain           = context.get("domain", "vision")
-        category_id      = context.get("category_id", domain)
         dataset_type     = context.get("dataset_type", "")
         task_description = context.get("task_description", "")
         generation       = context.get("generation", 0)
         depth            = context.get("depth", 0)
         failed_patterns  = context.get("failed_patterns", [])
+        population_size  = context.get("population_size", 3)
 
         await self.emit_progress("agent_start", "Researcher searching arXiv...", generation, depth)
         self.log_step("Starting arXiv search", {"domain": domain, "generation": generation})
 
-        # Ask the LLM to generate targeted search queries based on the actual goal
-        # and what has failed in previous generations — same approach as the main platform.
-        queries = await self._generate_search_queries(
-            domain, task_description, generation, failed_patterns
+        session_dir = ARTIFACTS_DIR / self.research_session_id
+        papers_dir  = (session_dir / "papers")
+        papers_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate one independent query pair per candidate slot so each candidate
+        # draws from a different corner of the literature.
+        all_query_pairs = await self._generate_diverse_query_pairs(
+            domain, task_description, generation, failed_patterns, n=population_size
         )
 
+        # Fetch, select, download, and extract insights for each slot in parallel
+        slot_tasks = [
+            self._research_one_slot(queries, domain, task_description or dataset_type, papers_dir, session_dir)
+            for queries in all_query_pairs
+        ]
+        slot_results = await asyncio.gather(*slot_tasks, return_exceptions=True)
+
+        paper_sets:   list[list[dict]] = []
+        insight_sets: list[str]        = []
+        seen_ids:     set[str]         = set()
+        all_papers_flat: list[dict]    = []
+
+        for r in slot_results:
+            if isinstance(r, Exception):
+                self.log_step("Slot research failed", {"error": str(r)})
+                paper_sets.append([])
+                insight_sets.append("")
+            else:
+                downloaded, insights = r
+                paper_sets.append(downloaded)
+                insight_sets.append(insights)
+                for p in downloaded:
+                    if p["arxiv_id"] not in seen_ids:
+                        seen_ids.add(p["arxiv_id"])
+                        all_papers_flat.append(p)
+
+        await self.emit_progress(
+            "agent_done",
+            f"Researcher indexed {len(all_papers_flat)} unique papers across {len(paper_sets)} candidate slots",
+            generation, depth,
+            {"papers": [p["title"] for p in all_papers_flat]},
+        )
+
+        # Backward-compat: first slot exposed as the shared context keys
+        context["research_papers"]        = paper_sets[0] if paper_sets else []
+        context["research_insights"]      = insight_sets[0] if insight_sets else ""
+        # Per-candidate sets consumed by MathematicianAgent
+        context["research_paper_sets"]    = paper_sets
+        context["research_insight_sets"]  = insight_sets
+        return context
+
+    async def _research_one_slot(
+        self,
+        queries: list[str],
+        domain: str,
+        dataset_type: str,
+        papers_dir: Path,
+        session_dir: Path,
+    ) -> tuple[list[dict], str]:
+        """Fetch, select, download, ingest and summarise papers for one candidate slot."""
         search_tasks = [self.fetch_arxiv_papers(q, max_results=5) for q in queries]
         all_results  = await asyncio.gather(*search_tasks)
 
-        results1, results2 = all_results[0], all_results[1] if len(all_results) > 1 else []
+        seen   : set[str]  = set()
+        papers : list[dict] = []
+        for batch in all_results:
+            for p in batch:
+                if p["arxiv_id"] not in seen:
+                    seen.add(p["arxiv_id"])
+                    papers.append(p)
 
-        # Deduplicate by arxiv_id
-        seen   = set()
-        papers = []
-        for p in results1 + results2:
-            if p["arxiv_id"] not in seen:
-                seen.add(p["arxiv_id"])
-                papers.append(p)
-
-        # Select most relevant 3-4 using LLM
-        selected = await self._select_papers(papers, domain, task_description or dataset_type)
-
-        # Download PDFs
-        session_dir = ARTIFACTS_DIR / self.research_session_id
-        papers_dir  = session_dir / "papers"
-        papers_dir.mkdir(parents=True, exist_ok=True)
-
-        downloaded = []
+        selected   = await self._select_papers(papers, domain, dataset_type)
+        downloaded : list[dict] = []
         for paper in selected:
             pdf_path = await self._download_pdf(paper, papers_dir)
             if pdf_path:
                 paper["local_pdf"] = str(pdf_path)
                 downloaded.append(paper)
 
-        # Ingest full PDF text into the session vectorstore so downstream agents
-        # can query specific content rather than relying on abstract summaries.
-        session_dir = ARTIFACTS_DIR / self.research_session_id
         await self._ingest_papers_to_vectorstore(downloaded, session_dir)
+        insights = await self._extract_insights(downloaded, domain, dataset_type)
+        return downloaded, insights
 
-        # Extract research insights (used as a lightweight summary in logs/UI)
-        insights = await self._extract_insights(downloaded, domain, task_description)
+    async def _generate_diverse_query_pairs(
+        self,
+        domain: str,
+        task_description: str,
+        generation: int,
+        failed_patterns: list[dict],
+        n: int,
+    ) -> list[list[str]]:
+        """
+        Generate n independent query pairs, each covering a different angle of the
+        literature so each candidate slot draws from distinct papers and mechanisms.
+        """
+        failed_summary = ""
+        if failed_patterns:
+            failed_mutations = list({m for f in failed_patterns[-5:] for m in f.get("mutations", [])})
+            if failed_mutations:
+                failed_summary = f"\nPreviously tried (avoid papers that only cover): {', '.join(failed_mutations)}"
 
-        await self.emit_progress(
-            "agent_done",
-            f"Researcher indexed {len(downloaded)} papers",
-            generation, depth,
-            {"papers": [p["title"] for p in downloaded]},
+        prompt = (
+            f"You are selecting arXiv search queries for a neural architecture research task.\n\n"
+            f"Domain: {domain}\n"
+            f"Research goal: {task_description}\n"
+            f"Generation: {generation}{failed_summary}\n\n"
+            f"Generate exactly {n} pairs of arXiv search queries. Each pair must explore a DIFFERENT "
+            f"sub-area or angle — maximise diversity so each pair leads to entirely different papers "
+            f"and architectural ideas. Avoid overlap between pairs.\n\n"
+            f"Return ONLY a JSON array of {n} arrays, each containing 2 query strings.\n"
+            f"Example for n=3: [[\"q1a\",\"q1b\"],[\"q2a\",\"q2b\"],[\"q3a\",\"q3b\"]]"
         )
-
-        context["research_papers"]   = downloaded
-        context["research_insights"] = insights
-        return context
+        try:
+            import json
+            raw   = await self.call_llm(prompt, force_claude=True, max_tokens=400)
+            start = raw.find("["); end = raw.rfind("]") + 1
+            pairs = json.loads(raw[start:end])
+            if isinstance(pairs, list):
+                result = [[str(q) for q in pair[:2]] for pair in pairs[:n]]
+                while len(result) < n:
+                    i = len(result)
+                    result.append([
+                        f"novel {domain} neural architecture method {i}",
+                        f"{task_description[:60]} deep learning approach {i}",
+                    ])
+                return result
+        except Exception as e:
+            self.log_step("Diverse query generation failed — using fallbacks", {"error": str(e)})
+        return [
+            [f"{task_description[:60]} neural architecture {i}", f"novel {domain} deep learning method {i}"]
+            for i in range(n)
+        ]
 
     async def _generate_search_queries(
         self,

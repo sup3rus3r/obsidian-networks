@@ -369,7 +369,9 @@ def run_research_generation(self, research_session_id: str, context: dict):
                     retry_context["previous_winner_score"] = round(best_score, 3)
                 # Clear pipeline outputs so research/math agents run fresh (new papers, new mechanisms)
                 # but keep previous_winner_code so Coder edits rather than rewrites
-                for key in ("research_papers", "research_insights", "candidate_mechanisms",
+                for key in ("research_papers", "research_insights",
+                            "research_paper_sets", "research_insight_sets",
+                            "candidate_mechanisms", "mechanism_sets",
                             "architecture_proposals", "generated_code", "scored_candidates",
                             "candidates_to_recurse"):
                     retry_context.pop(key, None)

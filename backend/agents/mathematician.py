@@ -2,12 +2,14 @@
 MathematicianAgent — derives novel mathematical mechanisms from research insights.
 
 Steps:
-1. Call LLM to extract 3 novel mechanisms from research insights
+1. For each per-slot insight set (from ResearcherAgent), independently derive mechanisms
 2. Generate SymPy expressions for each mechanism
 3. Validate SymPy expressions are parseable
-4. Return updated context with candidate_mechanisms
+4. Return mechanism_sets (one per candidate slot) + backward-compat candidate_mechanisms
 """
 from __future__ import annotations
+
+import asyncio
 
 import json
 import logging
@@ -20,58 +22,68 @@ logger = logging.getLogger(__name__)
 class MathematicianAgent(BaseAgent):
 
     async def run(self, context: dict) -> dict:
-        generation        = context.get("generation", 0)
-        depth             = context.get("depth", 0)
-        domain            = context.get("domain", "vision")
-        task_description  = context.get("task_description", "")
-        research_insights = context.get("research_insights", "")
+        generation       = context.get("generation", 0)
+        depth            = context.get("depth", 0)
+        domain           = context.get("domain", "vision")
+        task_description = context.get("task_description", "")
+
+        # Per-slot insight sets from ResearcherAgent — one set per candidate
+        insight_sets: list[str] = context.get("research_insight_sets", [])
+        if not insight_sets:
+            insight_sets = [context.get("research_insights", "")]
 
         await self.emit_progress("agent_start", "Mathematician deriving mechanisms...", generation, depth)
-        self.log_step("Deriving mechanisms", {"domain": domain})
+        self.log_step("Deriving mechanisms", {"domain": domain, "n_slots": len(insight_sets)})
 
-        # Query the session vectorstore for targeted content from the actual papers.
-        # This gives the mechanism derivation real methods/equations from the papers
-        # rather than the compressed abstract-level summary.
+        from agents.domains import get_domain
+        domain_handler   = get_domain(domain)
         grounded_content = await self._query_vectorstore_for_mechanisms(domain, task_description)
 
-        # Combine vectorstore content with the abstract-level summary as fallback.
-        # Vectorstore content takes precedence (actual paper text); summary provides
-        # high-level framing if the store is empty or sparsely populated.
-        if grounded_content:
-            full_insights = (
-                f"EXTRACTED PAPER CONTENT (methods, equations, results):\n{grounded_content}"
-                + (f"\n\nRESEARCH SUMMARY:\n{research_insights}" if research_insights else "")
-            )
-        else:
-            full_insights = research_insights
+        # Derive one independent mechanism set per candidate slot in parallel
+        tasks = [
+            self._derive_for_slot(insights, grounded_content, domain_handler)
+            for insights in insight_sets
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Get domain handler to provide domain-specific mechanism generation
-        from agents.domains import get_domain
-        domain_handler = get_domain(domain)
-
-        mechanisms = await domain_handler.generate_mechanism(
-            full_insights,
-            llm_caller=self.call_llm,
-        )
-
-        # Validate SymPy expressions
-        validated = []
-        for m in mechanisms:
-            expr_str = m.get("sympy_expression", "")
-            is_valid = self._validate_sympy(expr_str)
-            m["sympy_valid"] = is_valid
-            validated.append(m)
-            self.log_step(f"Mechanism: {m.get('name')}", {"valid": is_valid, "expr": expr_str[:80]})
+        mechanism_sets: list[list[dict]] = []
+        all_names: list[str] = []
+        for r in results:
+            if isinstance(r, Exception):
+                self.log_step("Mechanism derivation failed for slot", {"error": str(r)})
+                mechanism_sets.append([])
+            else:
+                mechanism_sets.append(r)
+                all_names.extend(m["name"] for m in r)
 
         await self.emit_progress(
             "agent_done",
-            f"Mathematician derived {len(validated)} mechanisms",
+            f"Mathematician derived {len(all_names)} mechanisms across {len(mechanism_sets)} slots",
             generation, depth,
-            {"mechanisms": [m["name"] for m in validated]},
+            {"mechanisms": all_names},
         )
 
-        context["candidate_mechanisms"] = validated
+        # Backward-compat single key + per-slot sets for ArchitectAgent
+        context["candidate_mechanisms"] = mechanism_sets[0] if mechanism_sets else []
+        context["mechanism_sets"]       = mechanism_sets
         return context
+
+    async def _derive_for_slot(
+        self,
+        research_insights: str,
+        grounded_content: str,
+        domain_handler,
+    ) -> list[dict]:
+        full_insights = (
+            f"EXTRACTED PAPER CONTENT (methods, equations, results):\n{grounded_content}"
+            + (f"\n\nRESEARCH SUMMARY:\n{research_insights}" if research_insights else "")
+        ) if grounded_content else research_insights
+
+        mechanisms = await domain_handler.generate_mechanism(full_insights, llm_caller=self.call_llm)
+        for m in mechanisms:
+            m["sympy_valid"] = self._validate_sympy(m.get("sympy_expression", ""))
+            self.log_step(f"Mechanism: {m.get('name')}", {"expr": m.get("sympy_expression", "")[:80]})
+        return mechanisms
 
     async def _query_vectorstore_for_mechanisms(self, domain: str, task_description: str) -> str:
         """Query the session FAISS store for content relevant to mathematical mechanisms."""

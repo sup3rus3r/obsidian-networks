@@ -48,7 +48,12 @@ class ArchitectAgent(BaseAgent):
                 # Already in list — move it to front so it's prioritised
                 base_archs = [prev_winner_base] + [a for a in base_archs if a != prev_winner_base]
 
-        all_proposals = []
+        # Per-candidate mechanism sets from MathematicianAgent
+        mechanism_sets: list[list[dict]] = context.get("mechanism_sets", [])
+
+        population_size = context.get("population_size", 5)
+        all_proposals   = []
+
         for base_arch in base_archs[:2]:  # max 2 base archs per generation
             proposals = await domain_handler.propose_mutations(
                 base_arch,
@@ -58,10 +63,13 @@ class ArchitectAgent(BaseAgent):
             )
             all_proposals.extend(proposals)
 
-        # Limit to population_size
-        population_size = context.get("population_size", 5)
         if len(all_proposals) > population_size:
             all_proposals = all_proposals[:population_size]
+
+        # Attach each proposal's own mechanism set so Coder uses per-candidate papers
+        for i, proposal in enumerate(all_proposals):
+            if mechanism_sets:
+                proposal["mechanisms"] = mechanism_sets[i % len(mechanism_sets)]
 
         await self.emit_progress(
             "agent_done",

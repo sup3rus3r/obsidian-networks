@@ -35,12 +35,16 @@ class CoderAgent(BaseAgent):
         from agents.domains import get_domain
         domain_handler = get_domain(domain)
 
-        mechanisms = context.get("candidate_mechanisms", [])
+        shared_mechanisms = context.get("candidate_mechanisms", [])
 
         # Generate code for all proposals in parallel
+        # Each proposal may carry its own mechanism set (from per-slot research);
+        # fall back to the shared mechanisms if not present.
         tasks = [
             self._generate_single(
-                domain_handler, p, mechanisms, generation, depth,
+                domain_handler, p,
+                p.get("mechanisms") or shared_mechanisms,
+                generation, depth,
                 previous_winner_code=previous_winner_code,
                 previous_winner_score=previous_winner_score,
             )
