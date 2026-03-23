@@ -94,7 +94,13 @@ class BaseAgent(ABC):
         return any(kw in lower for kw in _LOCAL_TASK_KEYWORDS)
 
     async def _call_claude(self, prompt: str, max_tokens: int = 2000, system: str | None = None) -> str:
-        model = self.base_model or os.environ.get("AI_MODEL") or "claude-sonnet-4-6"
+        provider = os.environ.get("AI_PROVIDER", "anthropic").lower()
+        model = self.base_model or os.environ.get("AI_MODEL")
+
+        if provider in ("lmstudio", "openai"):
+            return await self._call_openai_compatible(prompt, max_tokens=max_tokens, system=system, model=model)
+
+        model = model or "claude-sonnet-4-6"
 
         # Retry on 529 overloaded with exponential backoff (max 4 attempts)
         import asyncio as _asyncio
@@ -124,6 +130,34 @@ class BaseAgent(ABC):
                         attempt + 1, len(delays) + 1, delay,
                     )
                     await _asyncio.sleep(delay)
+
+    async def _call_openai_compatible(
+        self, prompt: str, max_tokens: int = 2000, system: str | None = None, model: str | None = None
+    ) -> str:
+        from openai import AsyncOpenAI
+
+        provider = os.environ.get("AI_PROVIDER", "lmstudio").lower()
+        if provider == "lmstudio":
+            base_url = os.environ.get("LMSTUDIO_BASE_URL", "http://localhost:1234/v1")
+            api_key  = os.environ.get("LMSTUDIO_API_KEY", "lm-studio")
+            model    = model or "local-model"
+        else:
+            base_url = None
+            api_key  = os.environ.get("OPENAI_API_KEY")
+            model    = model or "gpt-4o"
+
+        messages: list[dict] = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+
+        async with AsyncOpenAI(base_url=base_url, api_key=api_key) as client:
+            response = await client.chat.completions.create(
+                model=model,
+                max_tokens=max_tokens,
+                messages=messages,
+            )
+            return response.choices[0].message.content
 
     async def _call_local(self, prompt: str) -> str:
         async with httpx.AsyncClient(timeout=60.0) as client:
