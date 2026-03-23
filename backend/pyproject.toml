@@ -32,6 +32,9 @@ dependencies = [
     "faiss-cpu>=1.8.0",
     "sentence-transformers>=3.0.0",
     "pypdf>=4.0.0",
+    # ── LLM providers ────────────────────────────────────────────────────────
+    "anthropic>=0.40.0",
+    "openai>=1.50.0",
     # ── Research Labs (Autonomous Agent Loop) ────────────────────────────────
     "arxiv>=2.0.0",
     "ollama>=0.2.0",

@@ -15,6 +15,7 @@ Tools available to Claude during the editing loop:
 from __future__ import annotations
 
 import ast
+import json
 import logging
 import os
 from typing import Any
@@ -149,13 +150,33 @@ class AgentCodeEditor:
         else:
             return f"Unknown tool: {name}", False
 
+    def _tools_openai(self) -> list[dict]:
+        """Convert tool definitions to OpenAI function-calling format."""
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": t["description"],
+                    "parameters": t["input_schema"],
+                },
+            }
+            for t in self._tools()
+        ]
+
     # ── Agentic edit loop ──────────────────────────────────────────────────────
 
     async def edit(self, user_prompt: str) -> str:
         """
         Run the agentic editing loop. Returns the final (improved) code.
-        If the loop exhausts MAX_TURNS without calling finish, returns best code seen.
+        Routes to Anthropic or OpenAI-compatible backend based on AI_PROVIDER env var.
         """
+        provider = os.environ.get("AI_PROVIDER", "anthropic").lower()
+        if provider in ("lmstudio", "openai"):
+            return await self._edit_openai(user_prompt)
+        return await self._edit_anthropic(user_prompt)
+
+    async def _edit_anthropic(self, user_prompt: str) -> str:
         messages: list[dict] = [{"role": "user", "content": user_prompt}]
 
         async with AsyncAnthropic(api_key=self._api_key) as client:
@@ -171,14 +192,11 @@ class AgentCodeEditor:
                 tool_uses = [b for b in response.content if b.type == "tool_use"]
 
                 if not tool_uses:
-                    # Claude returned text with no tool calls — treat as done
                     logger.info("AgentCodeEditor: no tool calls on turn %d, exiting loop", turn + 1)
                     break
 
-                # Append assistant response to message history
                 messages.append({"role": "assistant", "content": response.content})
 
-                # Process each tool call
                 tool_results = []
                 finished = False
                 for tu in tool_uses:
@@ -193,6 +211,75 @@ class AgentCodeEditor:
                         finished = True
 
                 messages.append({"role": "user", "content": tool_results})
+
+                if finished:
+                    logger.info("AgentCodeEditor: finished after %d turns", turn + 1)
+                    break
+
+        return self._code
+
+    async def _edit_openai(self, user_prompt: str) -> str:
+        from openai import AsyncOpenAI
+
+        provider = os.environ.get("AI_PROVIDER", "lmstudio").lower()
+        if provider == "lmstudio":
+            base_url = os.environ.get("LMSTUDIO_BASE_URL", "http://localhost:1234/v1")
+            api_key  = os.environ.get("LMSTUDIO_API_KEY", "lm-studio")
+        else:
+            base_url = None
+            api_key  = os.environ.get("OPENAI_API_KEY", "")
+
+        messages: list[dict] = [
+            {"role": "system", "content": EDITOR_SYSTEM},
+            {"role": "user",   "content": user_prompt},
+        ]
+
+        async with AsyncOpenAI(base_url=base_url, api_key=api_key) as client:
+            for turn in range(self.MAX_TURNS):
+                response = await client.chat.completions.create(
+                    model=self._model,
+                    max_tokens=4000,
+                    tools=self._tools_openai(),
+                    tool_choice="auto",
+                    messages=messages,
+                )
+
+                msg = response.choices[0].message
+                tool_calls = msg.tool_calls or []
+
+                if not tool_calls:
+                    logger.info("AgentCodeEditor: no tool calls on turn %d, exiting loop", turn + 1)
+                    break
+
+                # Append assistant message with tool_calls
+                messages.append({
+                    "role"      : "assistant",
+                    "content"   : msg.content or "",
+                    "tool_calls": [
+                        {
+                            "id"      : tc.id,
+                            "type"    : "function",
+                            "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                        }
+                        for tc in tool_calls
+                    ],
+                })
+
+                finished = False
+                for tc in tool_calls:
+                    try:
+                        inp = json.loads(tc.function.arguments or "{}")
+                    except json.JSONDecodeError:
+                        inp = {}
+                    result_text, is_finish = self._handle_tool(tc.function.name, inp)
+                    logger.debug("AgentCodeEditor tool=%s finished=%s result=%s", tc.function.name, is_finish, result_text[:80])
+                    messages.append({
+                        "role"        : "tool",
+                        "tool_call_id": tc.id,
+                        "content"     : result_text,
+                    })
+                    if is_finish:
+                        finished = True
 
                 if finished:
                     logger.info("AgentCodeEditor: finished after %d turns", turn + 1)
