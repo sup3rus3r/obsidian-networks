@@ -54,12 +54,15 @@ class ArchitectAgent(BaseAgent):
         population_size = context.get("population_size", 5)
         all_proposals   = []
 
+        explored_summary = self._build_explored_summary(context)
+
         for base_arch in base_archs[:2]:  # max 2 base archs per generation
             proposals = await domain_handler.propose_mutations(
                 base_arch,
                 mechanisms,
                 llm_caller=self.call_llm,
                 failed_patterns=failed_patterns or None,
+                explored_summary=explored_summary or None,
             )
             all_proposals.extend(proposals)
 
@@ -80,3 +83,36 @@ class ArchitectAgent(BaseAgent):
 
         context["architecture_proposals"] = all_proposals
         return context
+
+    def _build_explored_summary(self, context: dict) -> str:
+        """Summarise previously scored architectures so the LLM avoids re-exploring them.
+
+        Reads 'scored_candidates' (CriticAgent) and 'generated_code' (CoderAgent) from
+        context to produce a compact list of explored names, base templates, mutation
+        patterns, and composite/novelty scores.
+        """
+        scored: list[dict] = context.get("scored_candidates", [])
+        if not scored:
+            return ""
+
+        # Build a lookup from generated_code so we can surface mutation details
+        code_lookup: dict[str, dict] = {
+            g["architecture_name"]: g
+            for g in context.get("generated_code", [])
+        }
+
+        lines = []
+        for c in scored[:20]:  # cap to avoid bloating the prompt
+            name  = c.get("architecture_name", "?")
+            score = c.get("composite_score", 0)
+            nov   = c.get("novelty_score", 0)
+            code_entry = code_lookup.get(name, {})
+            base  = code_entry.get("base_template", "?")
+            muts  = code_entry.get("mutations", [])
+            mut_str = ", ".join(muts) if muts else "unknown"
+            lines.append(
+                f"  - {name} (base={base}, mutations=[{mut_str}], "
+                f"composite={score:.2f}, novelty={nov:.2f})"
+            )
+
+        return "\n".join(lines)

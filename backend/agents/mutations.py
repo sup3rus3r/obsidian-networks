@@ -208,6 +208,53 @@ class FusionTypeChange(MutationOperator):
         return spec
 
 
+class FreeFormMutation(MutationOperator):
+    """Invent a novel structural idea not representable by any standard operator.
+
+    The LLM proposes a free-form description; the Coder implements it as a
+    custom tf.keras.layers.Layer.  The spec carries the description so the
+    FAISS novelty index can distinguish it from standard variants.
+    """
+    name = "free_form"
+    description = (
+        "Invent a completely new architectural structure guided by the mechanism "
+        "descriptions — not derivable from any existing operator"
+    )
+
+    def apply(self, spec: dict, rng: random.Random | None = None) -> dict:
+        spec["mutation"] = self.name
+        spec.setdefault("free_form_structure", "novel mechanism — see rationale and mechanisms")
+        return spec
+
+
+class ArchitectureCrossover(MutationOperator):
+    """Hybridize the base architecture with a structurally different paradigm.
+
+    Adds a 'crossover_paradigm' field to the spec so the Coder knows which
+    foreign architectural concept to graft in, and the FAISS index sees the
+    hybrid identity.
+    """
+    name = "architecture_crossover"
+    description = "Hybridize the base architecture with elements from a structurally different computational paradigm"
+
+    _PARADIGMS = [
+        "state_space_model",
+        "neural_ode",
+        "reservoir_computing",
+        "capsule_network",
+        "hyperbolic_geometry",
+        "graph_message_passing",
+        "fourier_neural_operator",
+        "liquid_time_constant",
+    ]
+
+    def apply(self, spec: dict, rng: random.Random | None = None) -> dict:
+        rng = rng or random.Random()
+        spec["crossover_paradigm"] = rng.choice(self._PARADIGMS)
+        spec["mutation"] = self.name
+        return spec
+
+
 # ── Registry ──────────────────────────────────────────────────────────────────
 
 MUTATION_REGISTRY: dict[str, MutationOperator] = {
@@ -222,6 +269,8 @@ MUTATION_REGISTRY: dict[str, MutationOperator] = {
         DepthChange,
         WidthChange,
         FusionTypeChange,
+        FreeFormMutation,
+        ArchitectureCrossover,
     ]
 }
 

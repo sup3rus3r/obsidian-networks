@@ -95,6 +95,14 @@ the original authors did not explore.
 - Each mutation should represent a hypothesis about something unknown: \
 "what if we combined X principle with Y structure in this specific way?"
 - The rationale must explain WHY this combination is unexplored and what new behaviour it might produce.
+- PREFER the operators "free_form" and "architecture_crossover" when the mechanisms suggest \
+something that cannot be expressed by the other operators. Standard operators \
+(layer_insertion, width_change, etc.) produce low novelty scores — use them only as supplements.
+- "free_form": propose a completely novel structural concept as a custom layer — \
+describe it precisely in the rationale so the coder can implement it.
+- "architecture_crossover": hybridize the base with a different computational paradigm \
+(state_space_model, neural_ode, reservoir_computing, capsule_network, \
+hyperbolic_geometry, graph_message_passing, fourier_neural_operator, liquid_time_constant).
 
 JSON output rules:
 - Return a valid JSON array.
@@ -103,6 +111,9 @@ JSON output rules:
 - architecture_name: descriptive snake_case identifier for the mutated architecture.
 - mutations: list of operator names from the provided operator set.
 - rationale: one sentence stating the novel hypothesis being tested.
+- free_form_description (optional, required when "free_form" is in mutations): \
+a precise one-paragraph description of the novel custom layer to implement, \
+including its mathematical operation and why it is unexplored.
 """
 
 MECHANISM_SYSTEM = """\
@@ -156,6 +167,7 @@ class BaseDomain(ABC):
         mechanisms: list[dict],
         llm_caller: Callable[[str], Any],
         failed_patterns: list[dict] | None = None,
+        **kwargs: Any,
     ) -> list[dict]:
         """
         Propose architecture mutations based on mechanisms.
