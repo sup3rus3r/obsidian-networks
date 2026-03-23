@@ -90,12 +90,16 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - AI_PROVIDER=${AI_PROVIDER:-anthropic}
       - AI_MODEL=${AI_MODEL:-}
+      - LMSTUDIO_BASE_URL=${LMSTUDIO_BASE_URL:-http://host.docker.internal:1234/v1}
+      - LMSTUDIO_API_KEY=${LMSTUDIO_API_KEY:-lm-studio}
       - RESEARCH_ARTIFACTS_DIR=/research_artifacts
       - TRAINING_DOCKER_IMAGE=${TRAINING_DOCKER_IMAGE:-obsidian-trainer:latest}
       - RUNPOD_API_KEY=${RUNPOD_API_KEY:-}
       - LAMBDA_API_KEY=${LAMBDA_API_KEY:-}
     volumes:
       - research_artifacts:/research_artifacts
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       redis:
         condition: service_healthy
