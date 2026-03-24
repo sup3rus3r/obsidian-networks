@@ -29,6 +29,11 @@ class EvaluatorAgent(BaseAgent):
         await self.emit_progress("agent_start", f"Evaluator assessing {len(training_results)} checkpoints...", generation, depth)
         self.log_step("Starting evaluation", {"domain": domain})
 
+        # Load metrics skill — provides per-domain random-chance thresholds
+        # used to flag models that failed to learn as "training_failed".
+        self._metrics_skill = self.load_skill(filename="metrics.md")
+        self._domain = domain
+
         from agents.domains import get_domain
         domain_handler = get_domain(domain)
 
@@ -97,6 +102,8 @@ class EvaluatorAgent(BaseAgent):
                 None, self._measure_resources, checkpoint_path, test_data
             )
 
+            status = "training_failed" if self._is_random_chance(metrics) else "evaluated"
+
             return {
                 "architecture_name": arch_name,
                 "synthetic_metrics": metrics,
@@ -104,7 +111,7 @@ class EvaluatorAgent(BaseAgent):
                 "inference_time_ms": inference_ms,
                 "param_count"      : training_result.get("param_count", 0),
                 "training_time_s"  : training_result.get("training_time_s", 0),
-                "status"           : "evaluated",
+                "status"           : status,
             }
         except Exception as e:
             self.log_step(f"Evaluation error for {arch_name}", {"error": str(e)})
@@ -116,6 +123,40 @@ class EvaluatorAgent(BaseAgent):
                 "param_count"      : 0,
                 "status"           : "eval_error",
             }
+
+    def _is_random_chance(self, metrics: dict) -> bool:
+        """Return True if metrics indicate the model did not learn (random-chance performance).
+
+        Thresholds are informed by the evaluator/metrics.md skill; see that file for
+        the per-domain interpretation table.
+        """
+        domain = getattr(self, "_domain", "vision")
+        loss   = metrics.get("loss", 0.0)
+        acc    = metrics.get("accuracy")
+        mse    = metrics.get("mse", metrics.get("loss", 0.0))
+
+        if loss >= 999.0:
+            return True
+
+        if domain == "vision":
+            return acc is not None and acc < 0.12
+        if domain == "language":
+            return acc is not None and acc < 0.20
+        if domain == "timeseries":
+            return mse > 1.0
+        if domain == "graph":
+            return acc is not None and acc < 0.20
+        if domain == "audio":
+            return acc is not None and acc < 0.20
+        if domain == "tabular":
+            return acc is not None and acc < 0.33
+        if domain == "generative":
+            return loss > 10.0
+        if domain == "recommendation":
+            return loss > 0.6
+        if domain == "multimodal":
+            return acc is not None and acc < 0.12
+        return False
 
     def _measure_resources(self, checkpoint_path: str, test_data) -> tuple[float, float]:
         """Measure memory usage and inference time for a checkpoint."""

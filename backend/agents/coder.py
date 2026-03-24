@@ -35,6 +35,15 @@ class CoderAgent(BaseAgent):
         from agents.domains import get_domain
         domain_handler = get_domain(domain)
 
+        # Load domain skill; wrap call_llm so skill is injected into all code generation calls
+        domain_skill = self.load_skill(domain=domain)
+
+        async def skill_llm(prompt, system=None, **kwargs):
+            enhanced = (system or "") + (f"\n\n---\n\n{domain_skill}" if domain_skill else "")
+            return await self.call_llm(prompt, system=enhanced if enhanced.strip() else None, **kwargs)
+
+        self._skill_llm = skill_llm if domain_skill else self.call_llm
+
         shared_mechanisms = context.get("candidate_mechanisms", [])
 
         # Generate code for all proposals in parallel
@@ -97,7 +106,7 @@ class CoderAgent(BaseAgent):
             else:
                 code = await domain_handler.generate_code(
                     arch_spec,
-                    llm_caller=self.call_llm,
+                    llm_caller=self._skill_llm,
                     mechanisms=mechanisms,
                     rationale=rationale,
                 )

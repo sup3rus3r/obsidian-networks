@@ -30,6 +30,10 @@ class ValidatorAgent(BaseAgent):
 
         await self.emit_progress("agent_start", "Validator testing on real data...", generation, depth)
 
+        # Load soundness skill — provides domain-specific loss_ratio thresholds
+        # used to calibrate overfitting detection per domain.
+        self._soundness_skill = self.load_skill(filename="soundness.md")
+
         domain           = context.get("domain", "vision")
         eval_results     = context.get("evaluation_results", [])
         real_data_source = context.get("real_data_source", {})
@@ -87,7 +91,7 @@ class ValidatorAgent(BaseAgent):
             loss_ratio          = real_loss / max(synthetic_loss, 1e-6)
             generalization_score = max(0.0, 1.0 - (loss_ratio - 1.0) / 1.0)
             generalization_score = min(1.0, generalization_score)
-            overfitting          = loss_ratio > 1.5
+            overfitting          = loss_ratio > self._overfitting_threshold()
 
             return {
                 "architecture_name"   : arch_name,
@@ -116,6 +120,23 @@ class ValidatorAgent(BaseAgent):
         base = Path(os.environ.get("RESEARCH_ARTIFACTS_DIR", "/research_artifacts"))
         checkpoint = base / self.research_session_id / "checkpoints" / arch_name / "model.keras"
         return str(checkpoint) if checkpoint.exists() else None
+
+    def _overfitting_threshold(self) -> float:
+        """Return the domain-specific loss_ratio threshold above which overfitting is flagged.
+        Thresholds are informed by the soundness skill; see validator/soundness.md.
+        """
+        thresholds = {
+            "vision"        : 1.5,
+            "tabular"       : 1.5,
+            "timeseries"    : 2.0,
+            "language"      : 2.0,
+            "graph"         : 2.0,
+            "recommendation": 2.0,
+            "generative"    : 2.5,
+            "audio"         : 2.0,
+            "multimodal"    : 2.0,
+        }
+        return thresholds.get(self.domain, 1.5)
 
     def _load_real_data(self, real_data_path: str):
         """Load real data from path — domain-agnostic best-effort loader."""

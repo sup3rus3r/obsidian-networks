@@ -39,9 +39,24 @@ class MathematicianAgent(BaseAgent):
         domain_handler   = get_domain(domain)
         grounded_content = await self._query_vectorstore_for_mechanisms(domain, task_description)
 
+        # Load mathematician skill and novelty feedback; wrap call_llm to inject both
+        math_skill       = self.load_skill(filename="novel_mechanisms.md")
+        novelty_feedback = context.get("novelty_feedback", "")
+        skill_suffix = ""
+        if math_skill:
+            skill_suffix += f"\n\n---\n\n{math_skill}"
+        if novelty_feedback:
+            skill_suffix += f"\n\n---\n\n{novelty_feedback}"
+
+        async def skill_llm(prompt, system=None, **kwargs):
+            enhanced = (system or "") + skill_suffix
+            return await self.call_llm(prompt, system=enhanced if enhanced.strip() else None, **kwargs)
+
+        llm_caller = skill_llm if skill_suffix.strip() else self.call_llm
+
         # Derive one independent mechanism set per candidate slot in parallel
         tasks = [
-            self._derive_for_slot(insights, grounded_content, domain_handler)
+            self._derive_for_slot(insights, grounded_content, domain_handler, llm_caller)
             for insights in insight_sets
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -73,13 +88,17 @@ class MathematicianAgent(BaseAgent):
         research_insights: str,
         grounded_content: str,
         domain_handler,
+        llm_caller=None,
     ) -> list[dict]:
+        if llm_caller is None:
+            llm_caller = self.call_llm
+
         full_insights = (
             f"EXTRACTED PAPER CONTENT (methods, equations, results):\n{grounded_content}"
             + (f"\n\nRESEARCH SUMMARY:\n{research_insights}" if research_insights else "")
         ) if grounded_content else research_insights
 
-        mechanisms = await domain_handler.generate_mechanism(full_insights, llm_caller=self.call_llm)
+        mechanisms = await domain_handler.generate_mechanism(full_insights, llm_caller=llm_caller)
         for m in mechanisms:
             m["sympy_valid"] = self._validate_sympy(m.get("sympy_expression", ""))
             self.log_step(f"Mechanism: {m.get('name')}", {"expr": m.get("sympy_expression", "")[:80]})

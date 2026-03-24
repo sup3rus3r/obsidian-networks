@@ -15,6 +15,7 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
+from pathlib import Path
 
 import httpx
 from anthropic import AsyncAnthropic
@@ -29,6 +30,8 @@ USE_LOCAL_LLM = os.environ.get("USE_LOCAL_LLM", "false").lower() == "true"
 # Tasks that can safely run on a smaller/local model
 _LOCAL_TASK_KEYWORDS = {"extract", "classify", "summarize", "parse", "rate", "score", "compare", "list"}
 
+_SKILLS_DIR = Path(__file__).parent / "skills"
+
 
 class BaseAgent(ABC):
     """Abstract base class for all Research Labs agents."""
@@ -38,7 +41,8 @@ class BaseAgent(ABC):
         self.base_model          = base_model
         self.domain              = domain
         self.logger              = logging.getLogger(f"agents.{self.__class__.__name__}")
-        self._llm_cache: dict[str, str] = {}
+        self._llm_cache: dict[str, str]   = {}
+        self._skill_cache: dict[str, str] = {}
 
     # ── Abstract interface ─────────────────────────────────────────────────────
 
@@ -167,6 +171,52 @@ class BaseAgent(ABC):
             )
             resp.raise_for_status()
             return resp.json()["response"]
+
+    # ── Skills loading ────────────────────────────────────────────────────────
+
+    def load_skill(self, domain: str | None = None, filename: str | None = None) -> str | None:
+        """
+        Load a skill file for this agent and return the markdown body (frontmatter stripped).
+
+        Resolution order:
+        - domain   -> skills/<agent>/<domain>.md
+        - filename -> skills/<agent>/<filename>
+
+        Returns None if the file does not exist — agent runs without skill, no crash.
+        Skill bodies are cached in memory for the agent's lifetime.
+        """
+        agent_folder = self.__class__.__name__.replace("Agent", "").lower()
+
+        if domain:
+            skill_path = _SKILLS_DIR / agent_folder / f"{domain}.md"
+        elif filename:
+            skill_path = _SKILLS_DIR / agent_folder / filename
+        else:
+            return None
+
+        cache_key = str(skill_path)
+        if cache_key in self._skill_cache:
+            return self._skill_cache[cache_key]
+
+        if not skill_path.exists():
+            self.logger.debug("No skill file at %s — running without skill.", skill_path)
+            return None
+
+        raw  = skill_path.read_text(encoding="utf-8")
+        body = self._strip_skill_frontmatter(raw)
+        self._skill_cache[cache_key] = body
+        self.logger.debug("Loaded skill from %s (%d chars).", skill_path, len(body))
+        return body
+
+    @staticmethod
+    def _strip_skill_frontmatter(text: str) -> str:
+        """Remove YAML frontmatter (--- ... ---) from the top of a skill file."""
+        if not text.startswith("---"):
+            return text
+        end = text.find("---", 3)
+        if end == -1:
+            return text
+        return text[end + 3:].lstrip("\n")
 
     # ── SSE progress emission ─────────────────────────────────────────────────
 

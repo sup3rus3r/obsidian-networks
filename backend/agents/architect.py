@@ -34,6 +34,21 @@ class ArchitectAgent(BaseAgent):
 
         domain_handler  = get_domain(domain)
         base_archs      = domain_handler.list_architectures()
+
+        # Load domain skill and novelty feedback; wrap call_llm to inject both
+        domain_skill    = self.load_skill(domain=domain)
+        novelty_feedback = context.get("novelty_feedback", "")
+        skill_suffix = ""
+        if domain_skill:
+            skill_suffix += f"\n\n---\n\n{domain_skill}"
+        if novelty_feedback:
+            skill_suffix += f"\n\n---\n\n{novelty_feedback}"
+
+        async def skill_llm(prompt, system=None, **kwargs):
+            enhanced = (system or "") + skill_suffix
+            return await self.call_llm(prompt, system=enhanced if enhanced.strip() else None, **kwargs)
+
+        llm_caller = skill_llm if skill_suffix.strip() else self.call_llm
         failed_patterns = context.get("failed_patterns", [])
 
         # If recursing (depth > 0), seed with the winning base template from previous generation.
@@ -60,7 +75,7 @@ class ArchitectAgent(BaseAgent):
             proposals = await domain_handler.propose_mutations(
                 base_arch,
                 mechanisms,
-                llm_caller=self.call_llm,
+                llm_caller=llm_caller,
                 failed_patterns=failed_patterns or None,
                 explored_summary=explored_summary or None,
             )

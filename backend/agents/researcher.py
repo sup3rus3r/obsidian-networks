@@ -38,6 +38,9 @@ class ResearcherAgent(BaseAgent):
         await self.emit_progress("agent_start", "Researcher searching arXiv...", generation, depth)
         self.log_step("Starting arXiv search", {"domain": domain, "generation": generation})
 
+        # Load domain skill — used as system prompt in query generation LLM calls
+        self._domain_skill = self.load_skill(domain=domain)
+
         session_dir = ARTIFACTS_DIR / self.research_session_id
         papers_dir  = (session_dir / "papers")
         papers_dir.mkdir(parents=True, exist_ok=True)
@@ -152,7 +155,7 @@ class ResearcherAgent(BaseAgent):
         )
         try:
             import json
-            raw   = await self.call_llm(prompt, force_claude=True, max_tokens=400)
+            raw   = await self.call_llm(prompt, force_claude=True, max_tokens=400, system=getattr(self, "_domain_skill", None))
             start = raw.find("["); end = raw.rfind("]") + 1
             pairs = json.loads(raw[start:end])
             if isinstance(pairs, list):

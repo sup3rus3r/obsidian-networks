@@ -84,6 +84,16 @@ class CriticAgent(BaseAgent):
         # future generations can compute real embedding distances instead of defaulting to 0.8.
         await self._update_novelty_index(scored_candidates, code_lookup)
 
+        # Generate novelty feedback for the next generation's Mathematician and Architect.
+        # Written into context so subsequent agents can read it and steer away from
+        # overexplored territory toward genuinely novel directions.
+        novelty_feedback = self._generate_novelty_feedback(
+            scored_candidates, code_lookup, generation
+        )
+        if novelty_feedback:
+            context["novelty_feedback"] = novelty_feedback
+            self.log_step("Novelty feedback generated", {"length": len(novelty_feedback)})
+
         return context
 
     async def _score_candidate(
@@ -238,6 +248,77 @@ class CriticAgent(BaseAgent):
 
         return round((mem_score + inf_score + param_score + train_score) / 4.0, 4)
 
+    def _generate_novelty_feedback(
+        self,
+        scored_candidates: list[dict],
+        code_lookup: dict,
+        generation: int,
+    ) -> str:
+        """
+        Build a novelty feedback string for the next generation's agents.
+
+        Identifies low-novelty candidates, explains why they scored low, and
+        suggests unexplored directions. Written to context["novelty_feedback"]
+        for consumption by MathematicianAgent and ArchitectAgent.
+
+        Only generates feedback when at least one candidate has novelty_score < 0.45.
+        """
+        LOW_NOVELTY_THRESHOLD = 0.45
+
+        low_novelty = [
+            c for c in scored_candidates
+            if c.get("novelty_score", 1.0) < LOW_NOVELTY_THRESHOLD
+        ]
+        if not low_novelty:
+            return ""
+
+        # Count mutation frequency across ALL candidates to identify overexplored ops
+        mutation_counts: dict[str, int] = {}
+        for c in scored_candidates:
+            mutations = code_lookup.get(c["architecture_name"], {}).get("mutations", [])
+            for m in mutations:
+                mutation_counts[m] = mutation_counts.get(m, 0) + 1
+
+        # The mutations that dominated this generation
+        overexplored = [
+            m for m, count in sorted(mutation_counts.items(), key=lambda x: -x[1])
+            if count >= max(1, len(scored_candidates) // 2)  # used in ≥ half the candidates
+        ]
+
+        lines = [f"NOVELTY FEEDBACK (generation {generation}):"]
+
+        for c in low_novelty[:3]:  # cap at 3 to avoid bloating the prompt
+            name    = c["architecture_name"]
+            score   = c["novelty_score"]
+            code_entry = code_lookup.get(name, {})
+            mutations  = code_entry.get("mutations", [])
+            base       = code_entry.get("base_template", "unknown")
+
+            reason = "mutations are too similar to previously archived candidates"
+            if all(m in ("layer_insertion", "width_change", "depth_change") for m in mutations):
+                reason = "only standard structural operators were used (layer_insertion, width_change, depth_change) — these produce near-zero novelty"
+            elif not mutations:
+                reason = "no mutations recorded — the architecture may be a minimal variant of the base template"
+
+            lines.append(
+                f"- Candidate '{name}' (base={base}): novelty={score:.2f}. "
+                f"Reason: {reason}. Mutations used: {mutations}."
+            )
+
+        if overexplored:
+            lines.append(
+                f"- Overexplored mutation operators this generation: {overexplored}. "
+                f"Do NOT use these as the primary operator next generation."
+            )
+
+        lines.append("- Suggested directions for next generation:")
+        lines.append("  1. Use 'free_form' to propose a completely custom layer not expressible by standard operators.")
+        lines.append("  2. Use 'architecture_crossover' with one of: state_space_model, neural_ode, hyperbolic_geometry, fourier_neural_operator, capsule_network, reservoir_computing.")
+        lines.append("  3. Derive mechanisms that cross paper boundaries — combine a mathematical principle from one paper with the structure of another that the original authors did not consider.")
+        lines.append("  4. Target the Mathematician to look for Tier 1 mechanisms (see Mathematician skill) — reject any Tier 3 (renamed standard operations).")
+
+        return "\n".join(lines)
+
     async def _compute_soundness(self, arch_name: str, code: str, metrics: dict) -> float:
         """LLM judge rates the architecture's theoretical soundness 0–1."""
         if not code:
@@ -247,6 +328,9 @@ class CriticAgent(BaseAgent):
         acc  = metrics.get("accuracy")
         acc_str = f"{acc:.4f}" if isinstance(acc, (int, float)) else "N/A"
 
+        # Load scoring skill as system prompt for the soundness LLM judge
+        scoring_skill = self.load_skill(filename="scoring.md")
+
         try:
             prompt = (
                 f"Rate the soundness of this neural architecture on a scale from 0.0 to 1.0.\n\n"
@@ -254,13 +338,12 @@ class CriticAgent(BaseAgent):
                 f"Final training loss: {float(loss):.4f}\n"
                 f"Final accuracy: {acc_str}\n\n"
                 f"Code (first 800 chars):\n{code[:800]}\n\n"
-                f"Consider:\n"
-                f"- Does the architecture make theoretical sense?\n"
-                f"- Is the training loss reasonable for a toy run?\n"
-                f"- Are there obvious design flaws?\n\n"
+                f"Use the five-criterion rubric in your scoring skill to evaluate each criterion "
+                f"(theoretical coherence, convergence evidence, custom layer quality, "
+                f"shape consistency, domain appropriateness). Sum the criterion scores.\n\n"
                 f"Reply with ONLY a single float between 0.0 and 1.0. Example: 0.72"
             )
-            raw   = await self.call_llm(prompt, force_claude=True, max_tokens=10)
+            raw   = await self.call_llm(prompt, force_claude=True, max_tokens=10, system=scoring_skill)
             score = float(raw.strip().split()[0])
             return min(1.0, max(0.0, score))
         except Exception:

@@ -84,21 +84,21 @@ You set a domain (vision, text, audio, time series, graph, multimodal, tabular, 
 
 ### The Pipeline
 
-**1. Researcher** — Uses an LLM to generate targeted arXiv search queries from your specific research goal — not generic domain keywords. The model reads your goal, considers what has failed in previous generations, and writes queries designed to find papers that are actually relevant. It then reads the abstracts, selects the 3–4 most relevant papers, downloads the full PDFs, extracts the complete text (methods sections, equations, pseudocode, results), and chunks it into a per-session FAISS vector store. Papers accumulate across generations, so later generations have a richer store to draw from.
+**1. Researcher** — Uses an LLM to generate targeted arXiv search queries from your specific research goal — not generic domain keywords. For each candidate slot, it generates an independent pair of queries covering a different sub-area of the literature, so each candidate in a generation draws from entirely different papers and mechanisms. It reads the abstracts, selects the 3–4 most relevant papers per slot, downloads the full PDFs, extracts the complete text (methods sections, equations, pseudocode, results), and chunks it into a per-session FAISS vector store. Papers accumulate across generations, so later generations have a richer store to draw from.
 
-**2. Mathematician** — Queries the session vector store with targeted questions about mathematical mechanisms, attention formulations, loss functions, and novel training objectives. Gets back actual content from the papers — real equations and methods sections — not abstract summaries. Derives concrete mechanisms with names, descriptions, and symbolic expressions in SymPy syntax (e.g. `softmax(Q_t @ K_t.T / sqrt(d)) @ V_t`), validated against the SymPy library to ensure they are real mathematics, not hallucinations.
+**2. Mathematician** — Queries the session vector store with targeted questions about mathematical mechanisms, attention formulations, loss functions, and novel training objectives. Gets back actual content from the papers — real equations and methods sections — not abstract summaries. Derives one independent set of mechanisms per candidate slot from its assigned papers, so each candidate starts from a genuinely different mathematical hypothesis. Mechanisms are expressed in SymPy syntax (e.g. `softmax(Q_t @ K_t.T / sqrt(d)) @ V_t`) and validated against the SymPy library to ensure they are real mathematics, not hallucinations. When the Critic flags low novelty in a previous generation, those directions are injected here and steered away from in the next round.
 
-**3. Architect** — Takes the validated mechanisms and proposes architecture mutations against base domain templates (CNNs, Transformers, LSTMs, GANs, GNNs, etc.). Crucially, it knows which mutation combinations have already failed in previous generations and is explicitly instructed to avoid repeating them.
+**3. Architect** — Takes the validated mechanisms and proposes architecture mutations against base domain templates (CNNs, Transformers, LSTMs, GANs, GNNs, etc.). It knows which mutation combinations have already failed in previous generations and is explicitly instructed to avoid repeating them. Domain-specific skill files provide additional guidance: known-good mutation combinations, known dead ends, and common failure patterns for each of the nine supported domains.
 
-**4. Coder** — Generates a complete, self-contained TensorFlow/Keras training script for each proposed architecture. The mathematical mechanisms derived from the papers are embedded directly into the code prompt — not just described, but actually implemented as mathematical operations where architecturally appropriate.
+**4. Coder** — In the first generation, generates a complete, self-contained TensorFlow/Keras training script for each proposed architecture, embedding the derived mathematical mechanisms as actual custom `tf.keras.layers.Layer` subclasses. In subsequent generations, uses an agentic code editor to make surgical improvements to the previous winner's code rather than regenerating from scratch — the editor reads the existing code, identifies what to fundamentally change, and applies targeted edits. If a generated script does not implement the required custom layers, a targeted retry forces the mechanism to be implemented correctly before safety validation.
 
 **5. Trainer** — Runs each generated script in an isolated subprocess. Captures training metrics, hardware usage, parameter counts, and training time. Automatically diagnoses and retries on recoverable failures (syntax errors, import issues, dimension mismatches).
 
-**6. Evaluator** — Loads the trained checkpoint and evaluates it on held-out synthetic test data appropriate for the domain. Returns domain-specific metrics: accuracy for classification, MSE for regression and forecasting, reconstruction loss for generative models, node accuracy for graphs.
+**6. Evaluator** — Loads the trained checkpoint and evaluates it on held-out synthetic test data appropriate for the domain. Returns domain-specific metrics: accuracy for classification, MSE for regression and forecasting, reconstruction loss for generative models, node accuracy for graphs. Applies per-domain random-chance thresholds to detect models that did not learn — these are flagged as `training_failed` rather than passed forward as evaluated results.
 
-**7. Validator** — Checks each architecture against multiple soundness dimensions: output shape correctness, parameter count, generalisation gap between training and validation loss, inference speed. Flags architectures that trained successfully but have fundamental structural problems.
+**7. Validator** — Checks each architecture against real-data performance when enabled. Computes a generalisation score from the ratio of real-data loss to synthetic-data loss and flags overfitting using domain-specific thresholds (stricter for vision and tabular domains, more permissive for timeseries and generative domains where train/real gaps are expected).
 
-**8. Critic** — Scores every candidate on four axes: **Novelty** (how different is this from known base templates?), **Efficiency** (parameter count and inference speed relative to performance), **Soundness** (architectural correctness and stability), **Generalization** (gap between training and validation loss). Decides which candidates are worth recursing on in the next generation.
+**8. Critic** — Scores every candidate on four axes: **Novelty** (embedding distance from all previously archived candidates in a running FAISS index), **Efficiency** (parameter count and inference speed relative to performance), **Soundness** (rated by an LLM judge against a five-criterion architectural rubric), **Generalization** (real-data gap from the Validator). Decides which candidates are worth recursing on in the next generation. After scoring, it programmatically analyses which candidates scored low on novelty, identifies which mutation operators were overexplored, and writes a novelty feedback report into the pipeline context — consumed by the Mathematician and Architect in the next generation to steer exploration toward genuinely new territory.
 
 ### How Generations Work
 
@@ -107,6 +107,24 @@ After each generation, the top-scoring candidates seed the next one — the Arch
 If a generation produces no candidates worth recursing on, the session does not start from scratch. Instead it seeds the next generation from the best candidate found so far — even if it scored poorly — so the Architect continues building on that structural direction rather than exploring blind. The Researcher fetches fresh papers and the Mathematician derives new mechanisms, giving the architecture a new mathematical angle without losing the progress already made.
 
 After three consecutive generations without a strong candidate, the session pauses and asks you whether to keep going or stop. If you continue, the failure counter resets and exploration resumes with the same best-so-far seed. If you stop, the session closes and you keep whatever was found. You control both the number of candidates per generation and the maximum number of generations, either via slider (up to 20) or by typing any number directly.
+
+### Agent Skills
+
+Each agent in the pipeline is guided by hand-authored skill files — structured Markdown documents that encode domain expertise the agents would otherwise need to rediscover on every run.
+
+Skill files follow Anthropic's open Agent Skills standard: a YAML frontmatter block advertising the skill's name, agent, and applicable domains, followed by a Markdown body containing procedural guidance — not a description of what the agent does, but concrete instructions for *how to do it well* in each domain. Skill bodies are injected into agent system prompts at runtime so every LLM call in a generation has access to the relevant expertise.
+
+The skill library currently covers:
+
+- **Architect** — nine domain skills (vision, language, timeseries, graph, audio, tabular, generative, recommendation, multimodal), each containing known-good mutation combinations, dead ends to avoid, and common failure patterns for that domain
+- **Researcher** — nine domain skills with high-value arXiv query angles and paper selection criteria that target novel architecture papers with extractable mechanisms, avoiding generic benchmarking papers
+- **Coder** — nine domain skills with correct Keras/TF implementation patterns, synthetic data generation recipes, and common implementation errors flagged per domain
+- **Mathematician** — a skill on novel mechanism derivation: a three-step process for identifying genuinely new mathematics (Tier 1) vs renamed standard operations (Tier 3, which are rejected), with SymPy expression standards and novelty feedback integration instructions
+- **Critic** — a scoring skill containing a five-criterion soundness rubric used by the LLM judge, plus novelty score interpretation guidance
+- **Validator** — a soundness skill with per-domain overfitting thresholds that calibrate the generalisation gap detector for each domain's expected train/real distribution shift
+- **Evaluator** — a metrics skill with per-domain random-chance baselines used to flag models that trained but did not learn
+
+Skills accumulate institutional knowledge across sessions without modifying any code. Adding a new skill file immediately improves agent behaviour in the relevant domain on the next run.
 
 ### Research Lineage
 
@@ -354,7 +372,7 @@ Try: *"Forecast energy consumption for the next 24 hours using an LSTM."*
 | Task Queue | Celery 5, Redis 7 |
 | ML Runtime | TensorFlow 2.18+, Keras 3, NumPy 2.x, Pandas, scikit-learn, Gymnasium |
 | Research | FAISS vector store, sentence-transformers, pypdf, arXiv API, Context7 |
-| Research Labs | 8-agent autonomous loop, MongoDB, FAISS novelty index |
+| Research Labs | 8-agent autonomous loop, MongoDB, FAISS novelty index, agent skill files |
 | Deployment | Docker, Docker Compose |
 
 ---
