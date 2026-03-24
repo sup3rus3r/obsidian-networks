@@ -786,10 +786,12 @@ export async function POST(req: Request) {
 
       // For description mode (no dataset): infer domain from latest user message keywords
       if (!skillDomain) {
-        const lastUserText = [...messages].reverse()
-          .find(m => m.role === 'user')
-          ?.content
-        const text = (typeof lastUserText === 'string' ? lastUserText : JSON.stringify(lastUserText ?? '')).toLowerCase()
+        const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')
+        const lastUserText = lastUserMsg?.parts
+          ?.filter((p: { type: string }) => p.type === 'text')
+          .map((p: { type: string; text?: string }) => p.text ?? '')
+          .join(' ') ?? ''
+        const text = lastUserText.toLowerCase()
         if (/\b(vae|gan|diffusion|generati)/i.test(text))      skillDomain = 'generative'
         else if (/\b(rl|reinforcement|dqn|policy|agent)\b/i.test(text)) skillDomain = 'rl'
         else if (/\b(recommend|collaborativ|rating|cf\b)/i.test(text))  skillDomain = 'recommendation'
