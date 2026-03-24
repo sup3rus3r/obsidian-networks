@@ -55,14 +55,20 @@ class GraphDomain(BaseDomain):
         except Exception:
             return [{"name": "topology_aware_attention", "description": "Attention weighted by graph topology", "sympy_expression": "alpha_ij * (h_i + h_j) / deg(i)"}]
 
-    async def propose_mutations(self, base_arch: str, mechanisms: list[dict], llm_caller: Callable, failed_patterns: list[dict] | None = None) -> list[dict]:
-        template    = self.get_base_template(base_arch)
-        system      = MUTATION_SYSTEM + f"\nDomain: graph neural networks. Available operators: {self.mutation_operators}."
-        failure_ctx = self._format_failure_context(failed_patterns)
-        prompt      = (
+    async def propose_mutations(self, base_arch: str, mechanisms: list[dict], llm_caller: Callable, failed_patterns: list[dict] | None = None, **kwargs) -> list[dict]:
+        template         = self.get_base_template(base_arch)
+        system           = MUTATION_SYSTEM + f"\nDomain: graph neural networks. Available operators: {self.mutation_operators}."
+        failure_ctx      = self._format_failure_context(failed_patterns)
+        explored_summary = kwargs.get("explored_summary")
+        explored_ctx     = (
+            f"Already-explored architecture space (avoid these regions — novelty score rewards distance from them):\n{explored_summary}"
+            if explored_summary else ""
+        )
+        prompt           = (
             f"Base architecture:\n{json.dumps(template, indent=2)}"
             f"\n\nMechanisms:\n{json.dumps(mechanisms, indent=2)}"
             + (f"\n\n{failure_ctx}" if failure_ctx else "")
+            + (f"\n\n{explored_ctx}" if explored_ctx else "")
             + "\n\nPropose 3 mutations. JSON array:"
         )
         raw = await llm_caller(prompt, system=system, force_claude=True, max_tokens=1200)
