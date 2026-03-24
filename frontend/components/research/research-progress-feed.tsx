@@ -190,7 +190,25 @@ export function ResearchProgressFeed({ researchId, onComplete, onError }: Resear
     const es  = new EventSource(url)
     esRef.current = es
 
-    es.addEventListener('connected', () => setConnected(true))
+    es.addEventListener('connected', async () => {
+      setConnected(true)
+      // Recover banner if the session was already paused when we (re)connected
+      try {
+        const res = await fetch(AppRoutes.ResearchStatus(researchId))
+        if (res.ok) {
+          const doc = await res.json()
+          if (doc.status === 'awaiting_decision') {
+            const failures = doc.consecutive_failures ?? 3
+            const score    = doc.best_score ?? 0
+            setDecisionPrompt({
+              consecutiveFailures: failures,
+              bestScore          : Math.round(score * 100),
+              message            : `Tried ${failures} times to improve without finding strong candidates (best score: ${Math.round(score * 100)}%). Continue exploring or stop?`,
+            })
+          }
+        }
+      } catch { /* ignore — banner will appear via live event if stream is healthy */ }
+    })
 
     es.addEventListener('progress', (e) => {
       try {

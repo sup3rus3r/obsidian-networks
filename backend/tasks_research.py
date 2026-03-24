@@ -434,9 +434,11 @@ def run_research_generation(self, research_session_id: str, context: dict):
                             research_id, consecutive,
                         )
                         await _update_mongo_session(research_id, {
-                            "status"          : "awaiting_decision",
-                            "pending_context" : next_context,
-                            "updated_at"      : _now_iso(),
+                            "status"               : "awaiting_decision",
+                            "pending_context"      : next_context,
+                            "consecutive_failures" : consecutive,
+                            "best_score"           : round(best_score, 3),
+                            "updated_at"           : _now_iso(),
                         })
                         _publish(research_id, {
                             "event_type"              : "awaiting_user_decision",
