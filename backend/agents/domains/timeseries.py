@@ -117,14 +117,17 @@ class TimeSeriesDomain(BaseDomain):
         system      = MUTATION_SYSTEM + f"\nDomain: time series. Available operators: {self.mutation_operators}."
         failure_ctx = self._format_failure_context(failed_patterns)
 
-        explored_ctx = (
+        explored_ctx     = (
             f"Already-explored architecture space (avoid these regions — novelty score rewards distance from them):\n{explored_summary}"
             if explored_summary else ""
         )
+        task_description = kwargs.get("task_description", "")
+        goal_ctx         = f"Research goal: {task_description}" if task_description else ""
 
         prompt = (
             f"Base architecture:\n{json.dumps(template, indent=2)}"
             f"\n\nMechanisms to implement (use these as the PRIMARY inspiration):\n{json.dumps(mechanisms, indent=2)}"
+            + (f"\n\n{goal_ctx}" if goal_ctx else "")
             + (f"\n\n{failure_ctx}" if failure_ctx else "")
             + (f"\n\n{explored_ctx}" if explored_ctx else "")
             + "\n\nPropose 3 mutations. Strongly prefer 'free_form' or 'architecture_crossover' "

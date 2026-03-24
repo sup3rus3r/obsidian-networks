@@ -56,7 +56,7 @@ class MathematicianAgent(BaseAgent):
 
         # Derive one independent mechanism set per candidate slot in parallel
         tasks = [
-            self._derive_for_slot(insights, grounded_content, domain_handler, llm_caller)
+            self._derive_for_slot(insights, grounded_content, domain_handler, llm_caller, task_description)
             for insights in insight_sets
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -89,14 +89,17 @@ class MathematicianAgent(BaseAgent):
         grounded_content: str,
         domain_handler,
         llm_caller=None,
+        task_description: str = "",
     ) -> list[dict]:
         if llm_caller is None:
             llm_caller = self.call_llm
 
+        goal_line = f"\nRESEARCH GOAL: {task_description}" if task_description else ""
         full_insights = (
             f"EXTRACTED PAPER CONTENT (methods, equations, results):\n{grounded_content}"
             + (f"\n\nRESEARCH SUMMARY:\n{research_insights}" if research_insights else "")
-        ) if grounded_content else research_insights
+            + goal_line
+        ) if grounded_content else (research_insights + goal_line)
 
         mechanisms = await domain_handler.generate_mechanism(full_insights, llm_caller=llm_caller)
 

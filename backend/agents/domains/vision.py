@@ -68,13 +68,16 @@ class VisionDomain(BaseDomain):
         system           = MUTATION_SYSTEM + f"\nDomain: computer vision. Available operators: {self.mutation_operators}."
         failure_ctx      = self._format_failure_context(failed_patterns)
         explored_summary = kwargs.get("explored_summary")
+        task_description = kwargs.get("task_description", "")
         explored_ctx     = (
             f"Already-explored architecture space (avoid these regions — novelty score rewards distance from them):\n{explored_summary}"
             if explored_summary else ""
         )
+        goal_ctx         = f"Research goal: {task_description}" if task_description else ""
         prompt           = (
             f"Base architecture:\n{json.dumps(template, indent=2)}"
             f"\n\nMechanisms:\n{json.dumps(mechanisms, indent=2)}"
+            + (f"\n\n{goal_ctx}" if goal_ctx else "")
             + (f"\n\n{failure_ctx}" if failure_ctx else "")
             + (f"\n\n{explored_ctx}" if explored_ctx else "")
             + "\n\nPropose 3 mutations. JSON array:"

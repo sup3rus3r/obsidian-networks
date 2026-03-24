@@ -8,6 +8,7 @@ from .multimodal import MultimodalDomain
 from .tabular import TabularDomain
 from .recommendation import RecommendationDomain
 from .generative import GenerativeDomain
+from .rl import RLDomain
 
 DOMAIN_REGISTRY = {
     "vision"        : VisionDomain,
@@ -19,6 +20,7 @@ DOMAIN_REGISTRY = {
     "tabular"       : TabularDomain,
     "recommendation": RecommendationDomain,
     "generative"    : GenerativeDomain,
+    "rl"            : RLDomain,
 }
 
 

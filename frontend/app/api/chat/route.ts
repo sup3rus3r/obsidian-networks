@@ -579,9 +579,12 @@ For CNN/Video/Transformer: input tensor shape, resolution, channels, sequence le
 </plan_template>`
 
 // ── Phase-aware system prompt builder ────────────────────────────────────────
-function buildSystemPrompt(phase: string, planDoc: string | null): string {
+function buildSystemPrompt(phase: string, planDoc: string | null, skill: string | null = null): string {
+  const skillBlock = skill
+    ? `\n\n<domain_skill>\n${skill}\n</domain_skill>`
+    : ''
   if (phase === 'idle' || phase === 'researching') {
-    return SYSTEM_BASE + `
+    return SYSTEM_BASE + skillBlock + `
 
 <phase current="${phase}">
 CURRENT PHASE: RESEARCH
@@ -645,7 +648,7 @@ BEHAVIOUR:
   }
 
   if (phase === 'planning') {
-    return SYSTEM_BASE + `
+    return SYSTEM_BASE + skillBlock + `
 
 <phase current="planning">
 CURRENT PHASE: PLANNING
@@ -680,7 +683,7 @@ BEHAVIOUR:
     const planBlock = planDoc
       ? `\n<approved_plan>\n${planDoc}\n</approved_plan>`
       : ''
-    return SYSTEM_BASE + `
+    return SYSTEM_BASE + skillBlock + `
 
 <phase current="${phase}">
 CURRENT PHASE: BUILD
@@ -740,7 +743,7 @@ NEVER deviate from the approved plan's architecture without explicit user instru
   }
 
   // Fallback — should not normally be reached
-  return SYSTEM_BASE
+  return SYSTEM_BASE + skillBlock
 }
 
 export async function POST(req: Request) {
@@ -754,15 +757,60 @@ export async function POST(req: Request) {
   // Fetch current session phase from backend
   let sessionPhase = 'idle'
   let sessionPlan: string | null = null
+  let sessionSkill: string | null = null
   if (sessionId) {
     try {
-      const phaseRes = await fetch(`${apiBase}/platform/session/${sessionId}/phase`, {
-        signal: AbortSignal.timeout(5_000),
-      })
-      if (phaseRes.ok) {
-        const pd  = await phaseRes.json()
-        sessionPhase = pd.phase   ?? 'idle'
+      const [phaseRes, analysisRes] = await Promise.allSettled([
+        fetch(`${apiBase}/platform/session/${sessionId}/phase`,    { signal: AbortSignal.timeout(5_000) }),
+        fetch(`${apiBase}/platform/analysis/${sessionId}`,         { signal: AbortSignal.timeout(5_000) }),
+      ])
+
+      if (phaseRes.status === 'fulfilled' && phaseRes.value.ok) {
+        const pd  = await phaseRes.value.json()
+        sessionPhase = pd.phase    ?? 'idle'
         sessionPlan  = pd.plan_doc ?? null
+      }
+
+      // Map dataset_type → platform skill domain, then fetch the skill
+      let skillDomain: string | null = null
+      if (analysisRes.status === 'fulfilled' && analysisRes.value.ok) {
+        const analysis = await analysisRes.value.json()
+        const typeMap: Record<string, string> = {
+          tabular    : 'tabular',
+          time_series: 'timeseries',
+          nlp        : 'language',
+          image      : 'vision',
+        }
+        skillDomain = typeMap[analysis.dataset_type] ?? null
+      }
+
+      // For description mode (no dataset): infer domain from latest user message keywords
+      if (!skillDomain) {
+        const lastUserText = [...messages].reverse()
+          .find(m => m.role === 'user')
+          ?.content
+        const text = (typeof lastUserText === 'string' ? lastUserText : JSON.stringify(lastUserText ?? '')).toLowerCase()
+        if (/\b(vae|gan|diffusion|generati)/i.test(text))      skillDomain = 'generative'
+        else if (/\b(rl|reinforcement|dqn|policy|agent)\b/i.test(text)) skillDomain = 'rl'
+        else if (/\b(recommend|collaborativ|rating|cf\b)/i.test(text))  skillDomain = 'recommendation'
+        else if (/\b(graph|gcn|gnn|gat|node classif)/i.test(text))      skillDomain = 'graph'
+        else if (/\b(audio|speech|sound|spectrogram|conformer)/i.test(text)) skillDomain = 'audio'
+        else if (/\b(multimodal|clip|contrastive|image.text)/i.test(text)) skillDomain = 'multimodal'
+        else if (/\b(cnn|conv|vision|image|resnet|vit|efficientnet)/i.test(text)) skillDomain = 'vision'
+        else if (/\b(nlp|text|language|bert|transformer|sentiment|lstm.*text)/i.test(text)) skillDomain = 'language'
+        else if (/\b(time.?series|forecast|temporal|lstm|tcn|seq)/i.test(text)) skillDomain = 'timeseries'
+      }
+
+      if (skillDomain) {
+        try {
+          const skillRes = await fetch(`${apiBase}/platform/skill/${skillDomain}`, {
+            signal: AbortSignal.timeout(5_000),
+          })
+          if (skillRes.ok) {
+            const sd = await skillRes.json()
+            sessionSkill = sd.skill ?? null
+          }
+        } catch { /* non-fatal — run without domain skill */ }
       }
     } catch { /* non-fatal — default to idle */ }
   }
@@ -837,7 +885,7 @@ export async function POST(req: Request) {
 
   const result = streamText({
     model          : model,
-    system         : buildSystemPrompt(sessionPhase, sessionPlan),
+    system         : buildSystemPrompt(sessionPhase, sessionPlan, sessionSkill),
     messages       : modelMessages,
     tools          : phaseTools,
     stopWhen       : stepCountIs(20),

@@ -71,6 +71,8 @@ class ArchitectAgent(BaseAgent):
 
         explored_summary = self._build_explored_summary(context)
 
+        task_description = context.get("task_description", "")
+
         for base_arch in base_archs[:2]:  # max 2 base archs per generation
             proposals = await domain_handler.propose_mutations(
                 base_arch,
@@ -78,6 +80,7 @@ class ArchitectAgent(BaseAgent):
                 llm_caller=llm_caller,
                 failed_patterns=failed_patterns or None,
                 explored_summary=explored_summary or None,
+                task_description=task_description,
             )
             all_proposals.extend(proposals)
 

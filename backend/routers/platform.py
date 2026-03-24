@@ -1176,6 +1176,21 @@ async def get_phase(session_id: str):
     }
 
 
+@router.get("/skill/{domain}")
+async def get_platform_skill(domain: str):
+    """Return the platform skill markdown body (frontmatter stripped) for a given domain."""
+    skill_path = Path(__file__).resolve().parent.parent / "agents" / "skills" / "platform" / f"{domain}.md"
+    if not skill_path.exists():
+        raise HTTPException(status_code=404, detail=f"No platform skill found for domain '{domain}'")
+    text = skill_path.read_text()
+    # Strip YAML frontmatter delimited by ---
+    if text.startswith("---"):
+        end = text.find("---", 3)
+        if end != -1:
+            text = text[end + 3:].lstrip("\n")
+    return {"domain": domain, "skill": text}
+
+
 @router.post("/session/{session_id}/phase")
 async def set_phase(session_id: str, payload: _PhaseRequest):
     """Advance the session phase through the research → planning → approved → building state machine."""
