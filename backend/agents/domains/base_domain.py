@@ -129,7 +129,9 @@ then ask "what has not been tried yet that follows from this principle?"
 - Each mechanism should represent a genuine open question in the design space.
 
 JSON output rules:
-- Return a valid JSON array of mechanism objects.
+- Return a valid JSON array of 2–3 mechanism objects. An empty array [] is NEVER \
+acceptable — if all candidates seem too derivative, return the best Tier 2 mechanisms \
+(known mechanisms in new contexts) rather than nothing.
 - name: short snake_case identifier.
 - description: one sentence explaining the novel hypothesis and why it is unexplored.
 - sympy_expression: a valid mathematical expression in sympy syntax \

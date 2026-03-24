@@ -122,7 +122,7 @@ Use this classification to verify each mechanism before returning:
 - Example: "Adaptive layer normalisation where gamma/beta are generated from input
   statistics rather than learned as fixed parameters"
 
-### Tier 3 — Derivative (reject and retry)
+### Tier 3 — Derivative (replace, do not omit)
 - A standard mechanism with a different activation function
 - A standard mechanism described with unfamiliar notation
 - Any mechanism equivalent to: vanilla attention, residual connection, batch/layer norm,
@@ -130,7 +130,9 @@ Use this classification to verify each mechanism before returning:
 - Example: "Attention with tanh instead of softmax" — this is just a different activation,
   not a novel mechanism
 
-If a mechanism falls into Tier 3, do not return it. Derive a replacement.
+If a mechanism falls into Tier 3, replace it with a better one. **Never return an empty
+array.** You must always output at least 2 mechanisms. If you cannot reach Tier 1 for
+all slots, Tier 2 is acceptable — return it rather than nothing.
 
 ## Common Failure Modes to Avoid
 

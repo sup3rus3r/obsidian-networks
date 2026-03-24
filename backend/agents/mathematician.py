@@ -99,6 +99,19 @@ class MathematicianAgent(BaseAgent):
         ) if grounded_content else research_insights
 
         mechanisms = await domain_handler.generate_mechanism(full_insights, llm_caller=llm_caller)
+
+        if not mechanisms:
+            # Model returned an empty array (parsed cleanly but no mechanisms).
+            # Retry once with an explicit non-empty instruction appended to the insights.
+            self.log_step("Empty mechanism list — retrying once", {})
+            retry_insights = (
+                full_insights
+                + "\n\nCRITICAL: You returned an empty array. That is not acceptable. "
+                "You MUST return at least 2 mechanisms. Tier 2 (known mechanisms in new "
+                "contexts) is fine — return those rather than nothing."
+            )
+            mechanisms = await domain_handler.generate_mechanism(retry_insights, llm_caller=llm_caller)
+
         for m in mechanisms:
             m["sympy_valid"] = self._validate_sympy(m.get("sympy_expression", ""))
             self.log_step(f"Mechanism: {m.get('name')}", {"expr": m.get("sympy_expression", "")[:80]})
