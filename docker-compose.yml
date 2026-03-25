@@ -18,6 +18,7 @@ services:
       - AI_MODEL=${AI_MODEL:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GOOGLE_GENERATIVE_AI_API_KEY=${GOOGLE_GENERATIVE_AI_API_KEY:-}
       - LMSTUDIO_BASE_URL=${LMSTUDIO_BASE_URL:-}
     depends_on:
       api:
