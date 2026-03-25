@@ -83,7 +83,7 @@ class BaseAgent(ABC):
             try:
                 result = await self._call_local(prompt)
             except Exception as e:
-                self.logger.warning("Ollama failed (%s), falling back to Claude.", e)
+                self.logger.warning("Ollama failed (%s), falling back to primary LLM.", e)
                 result = await self._call_claude(prompt, max_tokens=max_tokens, system=system)
         else:
             result = await self._call_claude(prompt, max_tokens=max_tokens, system=system)
@@ -103,6 +103,9 @@ class BaseAgent(ABC):
 
         if provider in ("lmstudio", "openai"):
             return await self._call_openai_compatible(prompt, max_tokens=max_tokens, system=system, model=model)
+
+        if provider == "gemini":
+            return await self._call_gemini(prompt, max_tokens=max_tokens, system=system, model=model)
 
         model = model or "claude-sonnet-4-6"
 
@@ -162,6 +165,32 @@ class BaseAgent(ABC):
                 messages=messages,
             )
             return response.choices[0].message.content
+
+    async def _call_gemini(
+        self, prompt: str, max_tokens: int = 2000, system: str | None = None, model: str | None = None
+    ) -> str:
+        from google import genai
+        from google.genai import types
+
+        api_key = os.environ.get("GOOGLE_GENERATIVE_AI_API_KEY")
+        model   = model or "gemini-2.5-flash"
+
+        client = genai.Client(api_key=api_key)
+
+        config = types.GenerateContentConfig(max_output_tokens=max_tokens)
+        if system:
+            config.system_instruction = system
+
+        contents = prompt
+        response = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: client.models.generate_content(
+                model=model,
+                contents=contents,
+                config=config,
+            ),
+        )
+        return response.text
 
     async def _call_local(self, prompt: str) -> str:
         async with httpx.AsyncClient(timeout=60.0) as client:

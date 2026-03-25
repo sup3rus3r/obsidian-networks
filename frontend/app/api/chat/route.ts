@@ -5,10 +5,11 @@ import { getModel, getProvider } from '@/lib/model'
 export const runtime = 'nodejs'
 export const maxDuration = 120
 
-// Anthropic: ~200k tokens; OpenAI: ~128k; LM Studio: varies (often 8–32k)
+// Anthropic: ~200k tokens; OpenAI: ~128k; Gemini 2.0 Flash: ~1M; LM Studio: varies (often 8–32k)
 const MAX_HISTORY_MSGS: Record<string, number> = {
   anthropic: 40,
   openai   : 30,
+  gemini   : 50,
   lmstudio : 16,
 }
 
@@ -820,7 +821,7 @@ export async function POST(req: Request) {
   // Keep last N message turns to stay within context window limits
   const rawMessages = await convertToModelMessages(messages.slice(-maxHistory))
 
-  // For OpenAI / LM Studio: prune old tool call results from history to keep
+  // For OpenAI / LM Studio / Gemini: prune old tool call results from history to keep
   // context lean (arXiv abstracts and TF doc fetches are large).
   // For Anthropic: use server-side contextManagement instead (see providerOptions).
   const prunedMessages = provider !== 'anthropic'
