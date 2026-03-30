@@ -1103,6 +1103,17 @@ async def vectorstore_ingest(session_id: str, payload: _IngestRequest):
 
     url = payload.url
 
+    # Block old arXiv papers — only allow papers from the last 3 years
+    if url and "arxiv.org" in url:
+        import re, datetime
+        m = re.search(r'arxiv\.org/(?:abs|pdf)/(\d{4})', url)
+        if m:
+            paper_yymm = int(m.group(1))
+            current_year = datetime.datetime.now().year
+            cutoff = (current_year - 3) * 100 + 1  # e.g. 2301 for 2023+
+            if paper_yymm < cutoff:
+                return {"ok": False, "skipped": True, "reason": f"arXiv paper {m.group(1)} predates {current_year - 3} — only papers from the last 3 years allowed", "url": url}
+
     if payload.text:
         # Text already provided (e.g. from Context7 docs fetch) — skip HTTP download
         text = payload.text
@@ -1158,6 +1169,56 @@ async def vectorstore_query(session_id: str, payload: _QueryRequest):
     from vectorstore import query as vs_query
     results = vs_query(session.session_dir, payload.query, k=payload.k)
     return {"results": results, "count": len(results)}
+
+
+class _AlignmentRequest(_pydantic.BaseModel):
+    plan      : str
+    code      : str
+    session_id: str | None = None
+
+
+@router.post("/validate_alignment")
+async def validate_alignment(payload: _AlignmentRequest):
+    """
+    Use an LLM to check whether the generated code implements the approved plan.
+    Returns a list of mismatches (empty = aligned).
+    """
+    import anthropic as _anthropic
+    import os
+
+    prompt = f"""You are a code reviewer. Compare the approved ML plan with the generated Python training script.
+
+Identify concrete mismatches only — things the plan explicitly specifies that the code does NOT implement.
+Focus on: architecture layers, hyperparameter values, loss functions, optimizer, training loop structure.
+
+Ignore style, comments, and minor wording differences. If the code faithfully implements the plan, return an empty list.
+
+<approved_plan>
+{payload.plan[:3000]}
+</approved_plan>
+
+<generated_code>
+{payload.code[:4000]}
+</generated_code>
+
+Return ONLY a JSON array of short mismatch strings, e.g.:
+["Plan specifies learning_rate=0.001 but code uses 0.01", "Plan requires PPO clip_epsilon=0.2 but not found in code"]
+If aligned, return: []
+"""
+    try:
+        client = _anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+        msg = client.messages.create(
+            model      = "claude-haiku-4-5-20251001",
+            max_tokens = 512,
+            messages   = [{"role": "user", "content": prompt}],
+        )
+        import json as _json
+        raw = msg.content[0].text.strip()
+        start = raw.find("["); end = raw.rfind("]") + 1
+        mismatches = _json.loads(raw[start:end]) if start >= 0 else []
+        return {"mismatches": mismatches}
+    except Exception as e:
+        return {"mismatches": [], "error": str(e)}
 
 
 @router.get("/session/{session_id}/phase")

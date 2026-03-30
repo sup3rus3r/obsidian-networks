@@ -63,6 +63,8 @@ The plan MUST include:
 
 ### BUILD Phase
 
+Before writing any code, call `query_research` for each key implementation detail (layer sizes, learning rates, loss functions, hyperparameters) to retrieve exact values from the ingested papers. Every value in the script must match the approved plan — `create_notebook` runs an automated alignment check and will reject mismatches.
+
 Follow the standard BUILD SEQUENCE. Key multimodal-specific steps:
 
 1. In `edit_script`:

@@ -306,14 +306,16 @@ class BaseAgent(ABC):
         def _search() -> list[dict]:
             import datetime
             current_year = datetime.datetime.now().year
-            date_filter  = f"submittedDate:[{current_year - 2}0101 TO {current_year}1231]"
-            dated_query  = f"{query} {date_filter}"
+            cutoff_year  = current_year - 3  # e.g. 2023 if current is 2026
+            # Fetch more candidates sorted by relevance, then post-filter by date
             client  = arxiv.Client(num_retries=1, delay_seconds=1)
             results = list(client.results(
-                arxiv.Search(query=dated_query, max_results=max_results, sort_by=arxiv.SortCriterion.SubmittedDate)
+                arxiv.Search(query=query, max_results=max_results * 4, sort_by=arxiv.SortCriterion.Relevance)
             ))
             papers = []
             for r in results:
+                if r.published.year < cutoff_year:
+                    continue  # skip papers older than 2 years
                 papers.append({
                     "title"    : r.title,
                     "arxiv_id" : r.get_short_id().replace("v" + r.get_short_id().split("v")[-1], "") if "v" in r.get_short_id() else r.get_short_id(),
@@ -322,6 +324,8 @@ class BaseAgent(ABC):
                     "pdf_url"  : r.pdf_url,
                     "authors"  : [str(a) for a in r.authors[:3]],
                 })
+                if len(papers) >= max_results:
+                    break
             return papers
 
         self.log_step("arXiv search starting", {"query": query, "max_results": max_results, "date_filter": f"{__import__('datetime').datetime.now().year - 2}-{__import__('datetime').datetime.now().year}"})

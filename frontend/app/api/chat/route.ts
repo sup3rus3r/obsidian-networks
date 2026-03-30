@@ -42,10 +42,11 @@ async function fetchContext7Docs(topic: string): Promise<string> {
 }
 
 interface Paper {
-  title   : string
-  authors : string
-  abstract: string
-  url     : string
+  title    : string
+  authors  : string
+  abstract : string
+  url      : string
+  published: string
 }
 
 function parseArxiv(xml: string): Paper[] {
@@ -55,11 +56,12 @@ function parseArxiv(xml: string): Paper[] {
     const url = e.match(/<id>(https?:\/\/arxiv\.org\/abs\/[^<]+)<\/id>/)?.[1]
     if (!url) continue
     papers.push({
-      title   : (e.match(/<title>([\s\S]*?)<\/title>/)?.[1]   ?? '').trim().replace(/\s+/g, ' '),
-      authors : [...e.matchAll(/<name>([\s\S]*?)<\/name>/g)]
-                  .slice(0, 3).map(a => a[1].trim()).join(', '),
-      abstract: (e.match(/<summary>([\s\S]*?)<\/summary>/)?.[1] ?? '').trim().replace(/\s+/g, ' ').slice(0, 2000),
+      title    : (e.match(/<title>([\s\S]*?)<\/title>/)?.[1]   ?? '').trim().replace(/\s+/g, ' '),
+      authors  : [...e.matchAll(/<name>([\s\S]*?)<\/name>/g)]
+                   .slice(0, 3).map(a => a[1].trim()).join(', '),
+      abstract : (e.match(/<summary>([\s\S]*?)<\/summary>/)?.[1] ?? '').trim().replace(/\s+/g, ' ').slice(0, 2000),
       url,
+      published: (e.match(/<published>([\s\S]*?)<\/published>/)?.[1] ?? '').trim().slice(0, 10),
     })
   }
   return papers
@@ -72,30 +74,39 @@ function createResearchTools(sessionId: string | null) {
   return {
     search_arxiv: tool({
       description:
-        'Search arXiv for research papers relevant to the ML task. ' +
-        'Returns paper titles, authors, abstracts, and arXiv IDs. ' +
+        'Search arXiv for RECENT research papers relevant to the ML task. ' +
+        'Only returns papers from the last 2 years — older papers are automatically filtered out. ' +
+        'Returns paper titles, authors, abstracts, published date, and arXiv IDs. ' +
         'Read the abstracts carefully and select the most relevant papers. ' +
         'Then call ingest_arxiv_paper for each selected paper to download and index the full PDF. ' +
-        'Call this 2 times with different query angles to get broad coverage.',
+        'Call this 2 times with different query angles to get broad coverage. ' +
+        'IMPORTANT: Only ingest papers returned by this tool — never ingest URLs from your training knowledge.',
       inputSchema: z.object({
-        query      : z.string().describe('arXiv search terms, e.g. "tabular classification deep learning 2024"'),
+        query      : z.string().describe('arXiv search terms, e.g. "tabular classification deep learning"'),
         max_results: z.number().int().min(1).max(6).default(5),
       }),
       execute: async (input: { query: string; max_results: number }) => {
         try {
+          const cutoffYear = new Date().getFullYear() - 3
           const xml = await fetchText(
             `https://export.arxiv.org/api/query` +
             `?search_query=all:${encodeURIComponent(input.query)}` +
-            `&start=0&max_results=${input.max_results}` +
+            `&start=0&max_results=${input.max_results * 4}` +
             `&sortBy=relevance&sortOrder=descending`
           )
           const papers = parseArxiv(xml)
-          // Strip version suffix from IDs so download always gets latest
-          const papersWithIds = papers.map(p => ({
-            ...p,
-            arxiv_id: p.url.split('/abs/')[1]?.replace(/v\d+$/, '') ?? '',
-          }))
-          return { query: input.query, papers: papersWithIds }
+          // Filter to recent papers only, then take top max_results
+          const recent = papers
+            .filter(p => {
+              const year = p.published ? parseInt(p.published.slice(0, 4), 10) : 0
+              return year >= cutoffYear
+            })
+            .slice(0, input.max_results)
+            .map(p => ({
+              ...p,
+              arxiv_id: p.url.split('/abs/')[1]?.replace(/v\d+$/, '') ?? '',
+            }))
+          return { query: input.query, papers: recent, filtered_to_recent: true, cutoff_year: cutoffYear }
         } catch (err) {
           return { query: input.query, papers: [] as (Paper & { arxiv_id: string })[], error: String(err) }
         }
@@ -381,7 +392,7 @@ function createScriptTools(sessionId: string | null) {
   return { pip_install, run_code, read_script, edit_script }
 }
 
-function createNotebookTool(sessionId: string | null) {
+function createNotebookTool(sessionId: string | null, planDoc: string | null = null) {
   const apiBase = process.env.INTERNAL_API_URL ?? 'http://localhost:8000'
 
   // Per-request retry counter — resets each time the route is called (i.e. each user turn).
@@ -436,6 +447,34 @@ function createNotebookTool(sessionId: string | null) {
         }
       } catch (prefErr) {
         // Non-fatal — let the actual notebook call surface any real error
+      }
+
+      // Plan-vs-code alignment check — verify script implements what the plan specifies
+      if (planDoc) {
+        try {
+          const scriptRes2 = await fetch(`${apiBase}/platform/script/${sessionId}`, { signal: AbortSignal.timeout(5_000) })
+          const scriptData2 = scriptRes2.ok ? await scriptRes2.json().catch(() => null) : null
+          const scriptCode  = scriptData2?.content ?? ''
+          if (scriptCode.length > 100) {
+            const checkRes = await fetch(`${apiBase}/platform/validate_alignment`, {
+              method : 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body   : JSON.stringify({ plan: planDoc, code: scriptCode, session_id: sessionId }),
+              signal : AbortSignal.timeout(30_000),
+            })
+            if (checkRes.ok) {
+              const checkData = await checkRes.json().catch(() => null)
+              if (checkData?.mismatches?.length) {
+                return {
+                  errors: checkData.mismatches,
+                  action: `The code does not match the approved plan. Fix these mismatches with edit_script, then call create_notebook again (${MAX_ATTEMPTS - attempts} attempt(s) remaining).`,
+                }
+              }
+            }
+          }
+        } catch (_) {
+          // Non-fatal — alignment check failure should not block notebook creation
+        }
       }
 
       try {
@@ -704,10 +743,13 @@ STEP 2 — Inspect the dataset (DATASET MODE ONLY):
    SKIP entirely for CNN / Video / Transformer / description-mode tasks (no dataset file exists).
 
 STEP 3 — Write the training script (MANDATORY — ALWAYS DO THIS BEFORE create_notebook):
-   Call edit_script(old_str="__REPLACE_ALL__", new_str=<complete Python training script>)
+   Before writing, call query_research() for each key architectural decision to retrieve exact
+   values from the ingested papers: layer sizes, learning rates, hyperparameters, loss functions.
+   Then call edit_script(old_str="__REPLACE_ALL__", new_str=<complete Python training script>)
    ⚠ WARNING: create_notebook will FAIL if you skip this step. The script MUST be written first.
    - Implement EXACTLY the architecture from the approved plan above
-   - Every in-code comment must reference the plan section or paper source
+   - Every hyperparameter MUST match the plan — create_notebook will reject mismatches
+   - Every in-code comment must cite the plan section or paper source URL
 
 STEP 4 — Create the notebook:
    Call create_notebook(description="<one-line title>")
@@ -853,15 +895,15 @@ export async function POST(req: Request) {
   const { approve_plan } = createPlanningTools(sessionId)
 
   const phaseTools = isBuilding
-    // BUILD phase: script tools + create_notebook + approve_plan (needed on first turn).
-    // query_research and produce_plan are locked stubs so the model gets a recovery
-    // instruction if it tries to call them (e.g. due to conversation history context).
+    // BUILD phase: script tools + create_notebook + approve_plan + query_research.
+    // query_research stays live so the model can look up specific values from the
+    // ingested papers while writing code — grounding hyperparameters in evidence.
     ? {
         approve_plan,
         ...createScriptTools(sessionId),
-        create_notebook : createNotebookTool(sessionId),
-        query_research  : lockedTool('query_research',  'Research and planning are complete. Call edit_script to write the training script, then call create_notebook.'),
-        produce_plan    : lockedTool('produce_plan',    'Planning is complete. Call edit_script to write the training script, then call create_notebook.'),
+        create_notebook : createNotebookTool(sessionId, sessionPlan),
+        query_research  : createPlanningTools(sessionId).query_research,
+        produce_plan    : lockedTool('produce_plan', 'Planning is complete. Call edit_script to write the training script, then call create_notebook.'),
       }
     : sessionPhase === 'planning'
     // PLANNING phase: all planning tools + build tools.
