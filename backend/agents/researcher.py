@@ -101,8 +101,11 @@ class ResearcherAgent(BaseAgent):
         session_dir: Path,
     ) -> tuple[list[dict], str]:
         """Fetch, select, download, ingest and summarise papers for one candidate slot."""
-        search_tasks = [self.fetch_arxiv_papers(q, max_results=5) for q in queries]
-        all_results  = await asyncio.gather(*search_tasks)
+        # Sequential within a slot to avoid hammering arXiv rate limits
+        all_results = []
+        for q in queries:
+            results = await self.fetch_arxiv_papers(q, max_results=5)
+            all_results.append(results)
 
         seen   : set[str]  = set()
         papers : list[dict] = []

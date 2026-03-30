@@ -304,7 +304,7 @@ class BaseAgent(ABC):
         import arxiv
 
         def _search() -> list[dict]:
-            client  = arxiv.Client()
+            client  = arxiv.Client(num_retries=1, delay_seconds=1)
             results = list(client.results(
                 arxiv.Search(query=query, max_results=max_results, sort_by=arxiv.SortCriterion.Relevance)
             ))
@@ -320,8 +320,11 @@ class BaseAgent(ABC):
                 })
             return papers
 
+        self.log_step(f"arXiv search starting", {"query": query, "max_results": max_results})
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, _search)
+        papers = await loop.run_in_executor(None, _search)
+        self.log_step(f"arXiv search done", {"query": query, "found": len(papers)})
+        return papers
 
     # ── Shared Context7 helper ────────────────────────────────────────────────
 
