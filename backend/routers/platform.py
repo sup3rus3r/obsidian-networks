@@ -1104,15 +1104,17 @@ async def vectorstore_ingest(session_id: str, payload: _IngestRequest):
     url = payload.url
 
     # Block old arXiv papers — only allow papers from the last 3 years
+    # arXiv IDs use YYMM format: e.g. 2311 = Nov 2023, 2405 = May 2024
     if url and "arxiv.org" in url:
         import re, datetime
         m = re.search(r'arxiv\.org/(?:abs|pdf)/(\d{4})', url)
         if m:
-            paper_yymm = int(m.group(1))
+            paper_yymm = int(m.group(1))          # e.g. 2311
+            paper_year = 2000 + (paper_yymm // 100)  # e.g. 2023
             current_year = datetime.datetime.now().year
-            cutoff = (current_year - 3) * 100 + 1  # e.g. 2301 for 2023+
-            if paper_yymm < cutoff:
-                return {"ok": False, "skipped": True, "reason": f"arXiv paper {m.group(1)} predates {current_year - 3} — only papers from the last 3 years allowed", "url": url}
+            cutoff_year = current_year - 3         # e.g. 2023
+            if paper_year < cutoff_year:
+                return {"ok": False, "skipped": True, "reason": f"arXiv paper from {paper_year} predates {cutoff_year} — only papers from the last 3 years allowed", "url": url}
 
     if payload.text:
         # Text already provided (e.g. from Context7 docs fetch) — skip HTTP download

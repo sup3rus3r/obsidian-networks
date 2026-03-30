@@ -83,7 +83,7 @@ function createResearchTools(sessionId: string | null) {
         'IMPORTANT: Only ingest papers returned by this tool — never ingest URLs from your training knowledge.',
       inputSchema: z.object({
         query      : z.string().describe('arXiv search terms, e.g. "tabular classification deep learning"'),
-        max_results: z.number().int().min(1).max(6).default(5),
+        max_results: z.number().int().min(1).max(8).default(6),
       }),
       execute: async (input: { query: string; max_results: number }) => {
         try {
@@ -91,7 +91,7 @@ function createResearchTools(sessionId: string | null) {
           const xml = await fetchText(
             `https://export.arxiv.org/api/query` +
             `?search_query=all:${encodeURIComponent(input.query)}` +
-            `&start=0&max_results=${input.max_results * 4}` +
+            `&start=0&max_results=${input.max_results * 8}` +
             `&sortBy=relevance&sortOrder=descending`
           )
           const papers = parseArxiv(xml)
