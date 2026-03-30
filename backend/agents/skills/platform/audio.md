@@ -30,7 +30,9 @@ correct channel dimension and uses GlobalAveragePooling2D or temporal pooling.
 
 ### RESEARCH Phase
 
-1. Run both arXiv searches in parallel:
+**CRITICAL: Never ingest paper URLs from your training knowledge. Only ingest URLs returned by arXiv search results — do not use papers you already know.**
+
+1. Run both arXiv searches using the `search_arxiv` tool — use only the returned results:
    - `"audio classification mel spectrogram CNN deep learning 2024"`
    - `"conformer speech recognition spectrogram transformer audio 2023 2024"`
 2. Select 3–4 papers. Focus on: spectrogram input shape, Conv2D filter sizes, conformer block design.

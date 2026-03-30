@@ -29,7 +29,9 @@ construction and normalization pipeline, and generating code that uses Keras's n
 
 ### RESEARCH Phase
 
-1. Run both arXiv searches in parallel:
+**CRITICAL: Never ingest paper URLs from your training knowledge. Only ingest URLs returned by arXiv search results — do not use papers you already know.**
+
+1. Run both arXiv searches using the `search_arxiv` tool — use only the returned results:
    - `"time series forecasting LSTM transformer temporal convolution 2024"`
    - `"multivariate time series prediction deep learning normalization 2023 2024"`
 2. Select 3–4 papers. Prefer papers with explicit hyperparameters: lookback windows, layer sizes.

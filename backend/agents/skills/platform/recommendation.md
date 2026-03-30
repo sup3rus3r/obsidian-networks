@@ -30,7 +30,9 @@ Embedding layers for users and items and combines them via dot product or MLP.
 
 ### RESEARCH Phase
 
-1. Run both arXiv searches in parallel:
+**CRITICAL: Never ingest paper URLs from your training knowledge. Only ingest URLs returned by arXiv search results — do not use papers you already know.**
+
+1. Run both arXiv searches using the `search_arxiv` tool — use only the returned results:
    - `"neural collaborative filtering matrix factorization deep learning 2024"`
    - `"attention-based recommendation system user item embedding 2023 2024"`
 2. Select 3–4 papers. Focus on: embedding dimension, MLP layers, loss function for implicit/explicit feedback.

@@ -29,7 +29,9 @@ uses `tf.GradientTape` for custom training rather than `model.fit()`.
 
 ### RESEARCH Phase
 
-1. Run both arXiv searches in parallel:
+**CRITICAL: Never ingest paper URLs from your training knowledge. Only ingest URLs returned by arXiv search results — do not use papers you already know.**
+
+1. Run both arXiv searches using the `search_arxiv` tool — use only the returned results:
    - `"variational autoencoder VAE ELBO loss reparameterization image 2024"`
    - `"GAN generative adversarial network training stability DCGAN 2023 2024"`
 2. Select 3–4 papers. For VAE: focus on KL annealing, β-VAE. For GAN: focus on DCGAN, training stability, gradient penalty.

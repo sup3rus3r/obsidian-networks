@@ -29,7 +29,9 @@ feeds it into classification or sequence-to-sequence architectures.
 
 ### RESEARCH Phase
 
-1. Run both arXiv searches in parallel:
+**CRITICAL: Never ingest paper URLs from your training knowledge. Only ingest URLs returned by arXiv search results — do not use papers you already know.**
+
+1. Run both arXiv searches using the `search_arxiv` tool — use only the returned results:
    - `"text classification LSTM transformer embedding neural network 2024"`
    - `"NLP text encoding sequence model tabular classification 2023 2024"`
 2. Select 3–4 papers covering: embedding size, sequence model depth, regularisation.

@@ -30,7 +30,9 @@ and correctly normalises embeddings to unit length before computing cosine simil
 
 ### RESEARCH Phase
 
-1. Run both arXiv searches in parallel:
+**CRITICAL: Never ingest paper URLs from your training knowledge. Only ingest URLs returned by arXiv search results — do not use papers you already know.**
+
+1. Run both arXiv searches using the `search_arxiv` tool — use only the returned results:
    - `"CLIP contrastive image text pre-training dual encoder 2024"`
    - `"InfoNCE contrastive loss multimodal representation learning 2023 2024"`
 2. Select 3–4 papers. Focus on: projection dimension, temperature, loss formulation, encoder architecture.

@@ -29,7 +29,9 @@ well for tabular ML: feature normalization, imbalance handling, and regularisati
 
 ### RESEARCH Phase
 
-1. Run both arXiv searches in parallel:
+**CRITICAL: Never ingest paper URLs from your training knowledge. Only ingest URLs returned by arXiv search results — do not use papers you already know.**
+
+1. Run both arXiv searches using the `search_arxiv` tool — use only the returned results:
    - `"tabular deep learning wide deep feature crosses 2023 2024"`
    - `"neural networks structured data regularization residual 2024"`
 2. Select 3–4 papers focused on: architecture depth, feature interaction, regularisation.

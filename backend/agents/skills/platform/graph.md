@@ -29,7 +29,9 @@ GCN-style convolution using dense matrix operations compatible with the platform
 
 ### RESEARCH Phase
 
-1. Run both arXiv searches in parallel:
+**CRITICAL: Never ingest paper URLs from your training knowledge. Only ingest URLs returned by arXiv search results — do not use papers you already know.**
+
+1. Run both arXiv searches using the `search_arxiv` tool — use only the returned results:
    - `"graph convolutional network node classification GCN GAT message passing 2024"`
    - `"graph neural network spectral spatial aggregation 2023 2024"`
 2. Select 3–4 papers. Focus on: adjacency normalization, layer formulas, depth, dropout placement.

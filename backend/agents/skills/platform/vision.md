@@ -29,7 +29,9 @@ avoids the most common spatial-dimension collapse and shape errors.
 
 ### RESEARCH Phase
 
-1. Run both arXiv searches in parallel:
+**CRITICAL: Never ingest paper URLs from your training knowledge. Only ingest URLs returned by arXiv search results — do not use papers you already know.**
+
+1. Run both arXiv searches using the `search_arxiv` tool — use only the returned results:
    - `"image classification convolutional neural network efficient architecture 2024"`
    - `"vision transformer ViT patch embedding image recognition 2023 2024"`
 2. Select 3–4 papers. Prefer papers that include concrete hyperparameters (kernel sizes, depths, embedding dims).

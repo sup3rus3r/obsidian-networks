@@ -29,11 +29,13 @@ integrates with gymnasium environments (or synthetic fallback) correctly.
 
 ### RESEARCH Phase
 
-1. Run both arXiv searches in parallel:
-   - `"deep Q-network DQN replay buffer target network atari 2024"`
-   - `"actor-critic policy gradient advantage A2C PPO reinforcement learning 2023 2024"`
-2. Select 3–4 papers. For DQN: replay buffer size, target network update frequency. For actor-critic: advantage estimation, clipping.
-3. Ingest in parallel.
+**CRITICAL: Never ingest paper URLs from your training knowledge. Only ingest URLs returned by arXiv search results. Do not use URLs you already know (e.g. FinRL, DQN papers, classic RL papers) — these are old and defeat the purpose of research.**
+
+1. Run both arXiv searches in parallel using the `search_arxiv` tool — use the results returned, not papers you know:
+   - `"deep Q-network DQN replay buffer target network 2024"`
+   - `"actor-critic policy gradient advantage PPO reinforcement learning 2025"`
+2. Select 3–4 papers from the search results only. For DQN: replay buffer size, target network update frequency. For actor-critic: advantage estimation, clipping.
+3. Ingest only the URLs from those search results in parallel.
 4. Fetch TF/Keras docs in parallel:
    - `"GradientTape custom training loop reinforcement learning TensorFlow"`
    - `"Dense network policy function approximation RL"`
