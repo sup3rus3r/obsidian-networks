@@ -914,7 +914,7 @@ export async function POST(req: Request) {
     ? {
         ...createPlanningTools(sessionId),
         ...createScriptTools(sessionId),
-        create_notebook: createNotebookTool(sessionId),
+        create_notebook: createNotebookTool(sessionId, sessionPlan),
       }
     // RESEARCH phase (idle / researching): research + finalize only
     : createResearchTools(sessionId)
