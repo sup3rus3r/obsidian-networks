@@ -905,10 +905,16 @@ async def edit_script(session_id: str, payload: dict):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
     if session.phase not in ("approved", "building"):
-        raise HTTPException(
-            status_code=403,
-            detail=f"Code generation is locked until the plan is approved. Current phase: '{session.phase}'. Complete research → planning → user approval first."
-        )
+        # If plan exists, auto-advance to building — user approved in a prior turn
+        if session.plan_doc and session.phase == "planning":
+            session.phase = "building"
+            from sessions import _persist_phase
+            _persist_phase(session)
+        else:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Code generation is locked until the plan is approved. Current phase: '{session.phase}'. Complete research → planning → user approval first."
+            )
     # Transition to building on first script write
     if session.phase == "approved":
         session.phase = "building"
@@ -1196,11 +1202,11 @@ Focus on: architecture layers, hyperparameter values, loss functions, optimizer,
 Ignore style, comments, and minor wording differences. If the code faithfully implements the plan, return an empty list.
 
 <approved_plan>
-{payload.plan[:3000]}
+{payload.plan[:6000]}
 </approved_plan>
 
 <generated_code>
-{payload.code[:4000]}
+{payload.code[:8000]}
 </generated_code>
 
 Return ONLY a JSON array of short mismatch strings, e.g.:
@@ -1211,7 +1217,7 @@ If aligned, return: []
         client = _anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
         msg = client.messages.create(
             model      = "claude-haiku-4-5-20251001",
-            max_tokens = 512,
+            max_tokens = 1024,
             messages   = [{"role": "user", "content": prompt}],
         )
         import json as _json
@@ -1220,7 +1226,8 @@ If aligned, return: []
         mismatches = _json.loads(raw[start:end]) if start >= 0 else []
         return {"mismatches": mismatches}
     except Exception as e:
-        return {"mismatches": [], "error": str(e)}
+        logger.error("validate_alignment LLM call failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Alignment check failed: {e}")
 
 
 @router.get("/session/{session_id}/phase")
@@ -1261,12 +1268,52 @@ async def set_phase(session_id: str, payload: _PhaseRequest):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
 
+    # Allow plan_doc to be saved even when staying in the same planning phase
+    if payload.phase == session.phase and payload.plan_doc is not None:
+        session.plan_doc = payload.plan_doc
+        from sessions import _persist_phase
+        _persist_phase(session)
+        return {"phase": session.phase}
+
+    # Idempotent: approve_plan called when already approved or building → success
+    if payload.phase == "approved" and session.phase in ("approved", "building"):
+        return {"phase": session.phase}
+
+    # Idempotent: finalize_research or produce_plan called when already in planning → success
+    if payload.phase == "planning" and session.phase == "planning":
+        return {"phase": session.phase}
+
+    # Idempotent: produce_plan called after plan already approved/building → just return current phase
+    if payload.phase == "planning" and session.phase in ("approved", "building"):
+        return {"phase": session.phase}
+
     allowed = _VALID_TRANSITIONS.get(session.phase, set())
     if payload.phase not in allowed:
+        import sys
+        print(f"[PHASE 409] session={session_id[:8]} current={session.phase!r} requested={payload.phase!r} has_plan_doc={session.plan_doc is not None}", file=sys.stderr, flush=True)
         raise HTTPException(
             status_code=409,
             detail=f"Cannot transition from '{session.phase}' to '{payload.phase}'. Allowed next states: {sorted(allowed) or 'none'}."
         )
+
+    # Guard: researching → planning requires at least 3 ingested chunks
+    if session.phase == "researching" and payload.phase == "planning":
+        from vectorstore import chunk_count
+        n_chunks = chunk_count(session.session_dir)
+        if n_chunks < 3:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot enter planning phase: only {n_chunks} chunk(s) ingested. Ingest at least 3 sources first."
+            )
+
+    # Guard: planning → approved requires a saved plan_doc
+    if session.phase == "planning" and payload.phase == "approved":
+        existing_plan = session.plan_doc or (payload.plan_doc if payload.plan_doc else None)
+        if not existing_plan:
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot approve plan: no plan document found. Call produce_plan first to save the plan."
+            )
 
     session.phase = payload.phase
     if payload.plan_doc is not None:
