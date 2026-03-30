@@ -304,9 +304,13 @@ class BaseAgent(ABC):
         import arxiv
 
         def _search() -> list[dict]:
+            import datetime
+            current_year = datetime.datetime.now().year
+            date_filter  = f"submittedDate:[{current_year - 2}0101 TO {current_year}1231]"
+            dated_query  = f"{query} {date_filter}"
             client  = arxiv.Client(num_retries=1, delay_seconds=1)
             results = list(client.results(
-                arxiv.Search(query=query, max_results=max_results, sort_by=arxiv.SortCriterion.SubmittedDate)
+                arxiv.Search(query=dated_query, max_results=max_results, sort_by=arxiv.SortCriterion.SubmittedDate)
             ))
             papers = []
             for r in results:
@@ -320,7 +324,7 @@ class BaseAgent(ABC):
                 })
             return papers
 
-        self.log_step(f"arXiv search starting", {"query": query, "max_results": max_results})
+        self.log_step("arXiv search starting", {"query": query, "max_results": max_results, "date_filter": f"{__import__('datetime').datetime.now().year - 2}-{__import__('datetime').datetime.now().year}"})
         loop = asyncio.get_event_loop()
         papers = await loop.run_in_executor(None, _search)
         self.log_step(f"arXiv search done", {"query": query, "found": len(papers)})
