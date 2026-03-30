@@ -265,7 +265,7 @@ function createPlanningTools(sessionId: string | null) {
       description:
         'Call this when the user approves the plan (says "looks good", "approved", "proceed", "go ahead", etc.). ' +
         'Transitions the session to approved state. ' +
-        'After calling this, reply with one short confirmation sentence. The build tools will be available in the next turn.',
+        'After calling this, immediately proceed with the build sequence — do NOT wait for another user message.',
       inputSchema: z.object({}),
       execute: async () => {
         if (!sessionId) return { error: 'No active session' }
@@ -279,7 +279,7 @@ function createPlanningTools(sessionId: string | null) {
           const data = await res.json()
           return {
             ...data,
-            next_action: 'Plan approved and saved. Reply with: "Plan approved. Starting build now." — the build tools will activate on the next turn automatically.',
+            next_action: 'Plan approved. Proceed immediately with the BUILD SEQUENCE: STEP 1 (dataset mode only) run_code to inspect dataset, STEP 2 edit_script to write the full training script, STEP 3 create_notebook. Do not pause or ask the user anything.',
           }
         } catch (e) {
           return { error: String(e) }
@@ -450,19 +450,7 @@ function createNotebookTool(sessionId: string | null, planDoc: string | null = n
       }
 
       // Plan-vs-code alignment check — verify script implements what the plan specifies
-      // If planDoc wasn't loaded at route-init time, try fetching it fresh now
-      let effectivePlanDoc = planDoc
-      if (!effectivePlanDoc && sessionId) {
-        try {
-          const freshPhaseRes = await fetch(`${apiBase}/platform/session/${sessionId}/phase`, { signal: AbortSignal.timeout(5_000) })
-          if (freshPhaseRes.ok) {
-            const freshPhase = await freshPhaseRes.json().catch(() => null)
-            effectivePlanDoc = freshPhase?.plan_doc ?? null
-          }
-        } catch (_) { /* non-fatal */ }
-      }
-
-      if (effectivePlanDoc) {
+      if (planDoc) {
         try {
           const scriptRes2 = await fetch(`${apiBase}/platform/script/${sessionId}`, { signal: AbortSignal.timeout(5_000) })
           const scriptData2 = scriptRes2.ok ? await scriptRes2.json().catch(() => null) : null
@@ -471,23 +459,21 @@ function createNotebookTool(sessionId: string | null, planDoc: string | null = n
             const checkRes = await fetch(`${apiBase}/platform/validate_alignment`, {
               method : 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body   : JSON.stringify({ plan: effectivePlanDoc, code: scriptCode, session_id: sessionId }),
+              body   : JSON.stringify({ plan: planDoc, code: scriptCode, session_id: sessionId }),
               signal : AbortSignal.timeout(30_000),
             })
-            const checkData = await checkRes.json().catch(() => null)
-            if (!checkRes.ok) {
-              console.error('[create_notebook] validate_alignment returned', checkRes.status, checkData)
-              // Server-side check failed — log and continue rather than silently passing
-            } else if (checkData?.mismatches?.length) {
-              return {
-                errors: checkData.mismatches,
-                action: `The code does not match the approved plan. Fix these mismatches with edit_script, then call create_notebook again (${MAX_ATTEMPTS - attempts} attempt(s) remaining).`,
+            if (checkRes.ok) {
+              const checkData = await checkRes.json().catch(() => null)
+              if (checkData?.mismatches?.length) {
+                return {
+                  errors: checkData.mismatches,
+                  action: `The code does not match the approved plan. Fix these mismatches with edit_script, then call create_notebook again (${MAX_ATTEMPTS - attempts} attempt(s) remaining).`,
+                }
               }
             }
           }
-        } catch (alignErr) {
-          console.error('[create_notebook] alignment check failed:', alignErr)
-          // Non-fatal — log but don't block notebook creation
+        } catch (_) {
+          // Non-fatal — alignment check failure should not block notebook creation
         }
       }
 
@@ -729,7 +715,7 @@ BEHAVIOUR:
 
 4. STOP. Write exactly: "Here is the proposed plan based on the research. Let me know if you'd like any changes before I start building."
 
-5. STOP. Do NOT call any more tools. Do NOT self-approve. Wait for the user to say "approved", "go ahead", "looks good", or similar before anything else happens.
+5. Do NOT call edit_script, create_notebook, or run_code under any circumstances in this phase.
 </phase>`
   }
 
@@ -744,17 +730,19 @@ CURRENT PHASE: BUILD
 ${planBlock}
 
 ════════════════════════════════════════════════════════════════
-The plan has been approved. START BUILDING IMMEDIATELY — do not wait, do not ask questions.
-
-════════════════════════════════════════════════════════════════
 MANDATORY BUILD SEQUENCE — YOU MUST FOLLOW THIS EXACTLY
 ════════════════════════════════════════════════════════════════
 
-STEP 1 — Inspect the dataset (DATASET MODE ONLY):
+STEP 1 — Approve the plan (FIRST CALL, DO THIS ONCE):
+   Call approve_plan() → this unlocks edit_script and create_notebook.
+   If already in building phase (approve_plan was called in a prior turn), SKIP this step.
+   NEVER call approve_plan more than once.
+
+STEP 2 — Inspect the dataset (DATASET MODE ONLY):
    Call run_code("import pandas as pd; df = pd.read_csv('dataset.csv'); print(df.shape); print(df.dtypes); print(df.head(2))")
    SKIP entirely for CNN / Video / Transformer / description-mode tasks (no dataset file exists).
 
-STEP 2 — Write the training script (MANDATORY — ALWAYS DO THIS BEFORE create_notebook):
+STEP 3 — Write the training script (MANDATORY — ALWAYS DO THIS BEFORE create_notebook):
    Before writing, call query_research() for each key architectural decision to retrieve exact
    values from the ingested papers: layer sizes, learning rates, hyperparameters, loss functions.
    Then call edit_script(old_str="__REPLACE_ALL__", new_str=<complete Python training script>)
@@ -763,21 +751,21 @@ STEP 2 — Write the training script (MANDATORY — ALWAYS DO THIS BEFORE create
    - Every hyperparameter MUST match the plan — create_notebook will reject mismatches
    - Every in-code comment must cite the plan section or paper source URL
 
-STEP 3 — Create the notebook:
+STEP 4 — Create the notebook:
    Call create_notebook(description="<one-line title>")
    This reads the already-saved script — do NOT pass the script here.
 
-STEP 4 — Handle validation errors (if create_notebook returns errors):
+STEP 5 — Handle validation errors (if create_notebook returns errors):
    Fix ALL listed errors with edit_script, then call create_notebook again.
    Repeat until create_notebook returns ok: true.
 
-STEP 5 — Confirm success:
+STEP 6 — Confirm success:
    Reply with 3–5 bullets: architecture summary, key hyperparameters, expected output. No code shown.
 
 ════════════════════════════════════════════════════════════════
-RULE: The order is ALWAYS: (run_code if dataset) → edit_script → create_notebook
+RULE: The order is ALWAYS: approve_plan → (run_code) → edit_script → create_notebook
       You MUST NOT call create_notebook before edit_script has written the script.
-      approve_plan and produce_plan do NOT exist in this phase — do not attempt to call them.
+      You MUST NOT call query_research or produce_plan in the BUILD phase.
 ════════════════════════════════════════════════════════════════
 
 USER ASKS TO CHANGE/IMPROVE THE MODEL?
@@ -904,22 +892,29 @@ export async function POST(req: Request) {
   // model. Passing locked tools even with system-prompt warnings still allows the
   // model to call them; the only reliable gate is to omit them entirely.
   const isBuilding = sessionPhase === 'approved' || sessionPhase === 'building'
+  const { approve_plan } = createPlanningTools(sessionId)
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const phaseTools: any = isBuilding
-    // BUILD phase: script tools + create_notebook + query_research only.
-    // approve_plan is intentionally excluded — already called; model must not call it again.
+  const phaseTools = isBuilding
+    // BUILD phase: script tools + create_notebook + approve_plan + query_research.
+    // query_research stays live so the model can look up specific values from the
+    // ingested papers while writing code — grounding hyperparameters in evidence.
     ? {
+        approve_plan,
         ...createScriptTools(sessionId),
         create_notebook : createNotebookTool(sessionId, sessionPlan),
         query_research  : createPlanningTools(sessionId).query_research,
+        produce_plan    : lockedTool('produce_plan', 'Planning is complete. Call edit_script to write the training script, then call create_notebook.'),
       }
     : sessionPhase === 'planning'
-    // PLANNING phase: query_research + produce_plan + approve_plan only.
-    // No script/notebook tools — model cannot build until user approves.
+    // PLANNING phase: all planning tools + build tools.
+    // Build tools are included so that when approve_plan is called within this turn,
+    // the model can immediately proceed to edit_script → create_notebook without
+    // requiring an extra round-trip from the user.
+    // produce_plan is a locked stub in build phase; here it's real.
     ? {
-        query_research  : createPlanningTools(sessionId).query_research,
-        produce_plan    : createPlanningTools(sessionId).produce_plan,
+        ...createPlanningTools(sessionId),
+        ...createScriptTools(sessionId),
+        create_notebook: createNotebookTool(sessionId),
       }
     // RESEARCH phase (idle / researching): research + finalize only
     : createResearchTools(sessionId)

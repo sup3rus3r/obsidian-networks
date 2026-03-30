@@ -322,22 +322,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     if (!trimmed && pendingFiles.length === 0) return
     if (isLoading || isUploading) return
 
-    // Intercept approval messages — transition to approved server-side before sending
-    const approvalPhrases = ['ok', 'okay', 'approved', 'approve', 'go ahead', 'looks good', 'proceed', 'yes', 'build it', 'start building', 'go', 'do it', 'lgtm']
-    if (sessionId && trimmed && approvalPhrases.some(p => trimmed.toLowerCase().trim() === p || trimmed.toLowerCase().trim().startsWith(p + ' ') || trimmed.toLowerCase().trim().endsWith(' ' + p))) {
-      try {
-        const phaseRes = await fetch(`/api/phase?sessionId=${sessionId}`)
-        const phaseData = phaseRes.ok ? await phaseRes.json().catch(() => null) : null
-        if (phaseData?.phase === 'planning' && phaseData?.has_plan) {
-          await fetch('/api/phase', {
-            method : 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body   : JSON.stringify({ sessionId, phase: 'approved' }),
-          })
-        }
-      } catch (_) { /* non-fatal */ }
-    }
-
     let schemaBlock = ''
     const filesToUpload = pendingFiles
     const isVisionFile = filesToUpload.length > 0 &&
