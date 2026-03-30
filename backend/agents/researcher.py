@@ -10,6 +10,7 @@ Steps:
 from __future__ import annotations
 
 import asyncio
+import datetime
 import logging
 import os
 import uuid
@@ -139,6 +140,9 @@ class ResearcherAgent(BaseAgent):
         Generate n independent query pairs, each covering a different angle of the
         literature so each candidate slot draws from distinct papers and mechanisms.
         """
+        current_year = datetime.datetime.now().year
+        recent_years = f"{current_year - 2}, {current_year - 1}, {current_year}"
+
         failed_summary = ""
         if failed_patterns:
             failed_mutations = list({m for f in failed_patterns[-5:] for m in f.get("mutations", [])})
@@ -153,8 +157,10 @@ class ResearcherAgent(BaseAgent):
             f"Generate exactly {n} pairs of arXiv search queries. Each pair must explore a DIFFERENT "
             f"sub-area or angle — maximise diversity so each pair leads to entirely different papers "
             f"and architectural ideas. Avoid overlap between pairs.\n\n"
+            f"IMPORTANT: The current year is {current_year}. Target recent work only — each query MUST "
+            f"include one of these years: {recent_years}. Do not surface classic/foundational papers.\n\n"
             f"Return ONLY a JSON array of {n} arrays, each containing 2 query strings.\n"
-            f"Example for n=3: [[\"q1a\",\"q1b\"],[\"q2a\",\"q2b\"],[\"q3a\",\"q3b\"]]"
+            f"Example for n=3: [[\"q1a {current_year}\",\"q1b {current_year - 1}\"],[\"q2a {current_year}\",\"q2b {current_year - 1}\"],[\"q3a {current_year - 1}\",\"q3b {current_year - 2}\"]]"
         )
         try:
             import json
@@ -166,14 +172,15 @@ class ResearcherAgent(BaseAgent):
                 while len(result) < n:
                     i = len(result)
                     result.append([
-                        f"novel {domain} neural architecture method {i}",
-                        f"{task_description[:60]} deep learning approach {i}",
+                        f"novel {domain} neural architecture method {current_year} {i}",
+                        f"{task_description[:60]} deep learning approach {current_year - 1} {i}",
                     ])
                 return result
         except Exception as e:
             self.log_step("Diverse query generation failed — using fallbacks", {"error": str(e)})
+            current_year = datetime.datetime.now().year
         return [
-            [f"{task_description[:60]} neural architecture {i}", f"novel {domain} deep learning method {i}"]
+            [f"{task_description[:60]} neural architecture {current_year} {i}", f"novel {domain} deep learning method {current_year - 1} {i}"]
             for i in range(n)
         ]
 
@@ -185,6 +192,9 @@ class ResearcherAgent(BaseAgent):
         failed_patterns: list[dict],
     ) -> list[str]:
         """Ask the LLM to generate 2 targeted arXiv search queries for this specific goal."""
+        current_year = datetime.datetime.now().year
+        recent_years = f"{current_year - 2}, {current_year - 1}, {current_year}"
+
         failed_summary = ""
         if failed_patterns:
             failed_mutations = []
@@ -198,10 +208,11 @@ class ResearcherAgent(BaseAgent):
             f"Domain: {domain}\n"
             f"Research goal: {task_description}\n"
             f"Generation: {generation} (0 = first search, higher = need fresh angles){failed_summary}\n\n"
-            f"Generate exactly 2 arXiv search queries that will find the most relevant papers "
+            f"Generate exactly 2 arXiv search queries that will find the most relevant RECENT papers "
             f"for this specific goal. Queries should be complementary — cover different angles. "
             f"For generation > 0, search for approaches different from what has been tried.\n\n"
-            f"Return ONLY a JSON array of 2 strings. Example: [\"efficient CNN image classification 2024\", \"attention pooling vision architecture\"]"
+            f"IMPORTANT: The current year is {current_year}. Each query MUST include one of: {recent_years}.\n\n"
+            f"Return ONLY a JSON array of 2 strings. Example: [\"efficient CNN image classification {current_year}\", \"attention pooling vision architecture {current_year - 1}\"]"
         )
         try:
             raw    = await self.call_llm(prompt, force_claude=True, max_tokens=200)

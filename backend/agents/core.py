@@ -306,7 +306,7 @@ class BaseAgent(ABC):
         def _search() -> list[dict]:
             client  = arxiv.Client(num_retries=1, delay_seconds=1)
             results = list(client.results(
-                arxiv.Search(query=query, max_results=max_results, sort_by=arxiv.SortCriterion.Relevance)
+                arxiv.Search(query=query, max_results=max_results, sort_by=arxiv.SortCriterion.SubmittedDate)
             ))
             papers = []
             for r in results:
