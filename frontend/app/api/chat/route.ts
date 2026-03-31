@@ -182,6 +182,59 @@ function createResearchTools(sessionId: string | null) {
       },
     }),
 
+    fetch_tensorflow_datasets: tool({
+      description:
+        'Search and load a real TensorFlow Dataset (tfds) for the current task when the user has NOT uploaded data. ' +
+        'Use this INSTEAD OF synthetic data generation whenever a suitable public dataset exists. ' +
+        'First call with action="search" to find the best matching dataset name for the task. ' +
+        'Then call with action="load" and the chosen dataset_name to download a subset, save it as dataset.csv in the session, and make it available for download. ' +
+        'ALWAYS tell the user which dataset you selected and why BEFORE calling with action="load". ' +
+        'After a successful load, treat the session exactly like DATASET MODE — call run_code to inspect it, use it for real training. ' +
+        'If no suitable dataset exists (returns available=false), fall back to synthetic data generation.',
+      inputSchema: z.object({
+        action      : z.enum(['search', 'load']).describe('"search" to find a matching dataset, "load" to download it'),
+        task_description: z.string().describe('Description of the ML task, e.g. "image classification of handwritten digits"'),
+        dataset_name: z.string().optional().describe('tfds dataset name to load, e.g. "mnist", "cifar10", "imdb_reviews" — required for action="load"'),
+        max_samples : z.number().int().min(100).max(10000).default(2000).describe('Max samples to save in the subset CSV/export for download (default 2000)'),
+      }),
+      execute: async (input: { action: 'search' | 'load'; task_description: string; dataset_name?: string; max_samples?: number }) => {
+        if (!sessionId) return { error: 'No active session' }
+        try {
+          if (input.action === 'search') {
+            // Fetch tfds catalogue docs from Context7
+            const res = await fetch(
+              `https://context7.com/api/v1/tensorflow/datasets?tokens=6000&topic=${encodeURIComponent(input.task_description)}`,
+              { signal: AbortSignal.timeout(15_000) }
+            )
+            const docs = res.ok ? await res.text() : ''
+            return {
+              action : 'search',
+              task   : input.task_description,
+              catalog: docs.slice(0, 3000),
+              instruction: 'Review the catalog above. Pick the single most appropriate dataset_name for this task. Then call fetch_tensorflow_datasets with action="load" and that dataset_name. Tell the user your choice and reasoning first.',
+            }
+          }
+
+          // action === 'load'
+          if (!input.dataset_name) return { error: 'dataset_name is required for action="load"' }
+          const res = await fetch(`${apiBase}/platform/tfds/${sessionId}/load`, {
+            method : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body   : JSON.stringify({
+              dataset_name: input.dataset_name,
+              max_samples : input.max_samples ?? 2000,
+              task_description: input.task_description,
+            }),
+            signal : AbortSignal.timeout(300_000), // 5 min — download can be slow
+          })
+          const data = await res.json()
+          return { action: 'load', dataset_name: input.dataset_name, ...data }
+        } catch (e) {
+          return { error: String(e) }
+        }
+      },
+    }),
+
     finalize_research: tool({
       description:
         'Signal that research is complete and transition to the PLANNING phase. ' +
@@ -543,6 +596,11 @@ You NEVER skip phases. You NEVER write code before the plan is approved.
 You support two modes of operation:
 1. DATASET MODE — user uploads a tabular/time-series/structured dataset and describes a prediction goal.
 2. DESCRIPTION MODE — user describes a vision, video, NLP, or custom architecture task with no dataset upload (CNNs, Video models, Transformers, ViTs, etc.). In this mode you interview the user to gather all required specifications before researching.
+
+In DESCRIPTION MODE, ALWAYS try to find and load a real public dataset via fetch_tensorflow_datasets BEFORE falling back to synthetic data.
+TensorFlow Datasets (tfds) provides hundreds of public datasets (MNIST, CIFAR-10, ImageNet subsets, IMDB, LibriSpeech, etc.).
+You MUST tell the user which dataset you selected and why before loading it.
+Only use synthetic tf.random.normal() data if no suitable tfds dataset exists (fetch_tensorflow_datasets returns available=false).
 </role>
 
 <format>
@@ -572,7 +630,7 @@ You support two modes of operation:
 - CRITICAL — residual/skip connections with layers.Add() REQUIRE matching shapes. Always project the shortcut with a Dense layer of matching units before Add().
 - For time series: use keras.utils.timeseries_dataset_from_array() — NEVER manually roll windows
 - For RL: custom training loop with env.step() / env.reset() — do NOT use model.fit()
-- CRITICAL — For CNN / image models with no uploaded dataset: generate synthetic image tensors with tf.random.normal(shape=(N, H, W, C)) matching the agreed input resolution. NEVER reference a file path that does not exist.
+- CRITICAL — For CNN / image models with no uploaded dataset: FIRST call fetch_tensorflow_datasets to find and load a real dataset (e.g. mnist, cifar10, cifar100, oxford_flowers102, stanford_dogs). If a suitable dataset is loaded (available=true), use dataset.csv for training — treat it as DATASET MODE. Only if no suitable dataset exists, generate synthetic image tensors with tf.random.normal(shape=(N, H, W, C)) matching the agreed input resolution. NEVER reference a file path that does not exist.
 - CRITICAL — For video models: generate synthetic clip tensors with tf.random.normal(shape=(N, frames, H, W, C)). Use Conv3D or ConvLSTM2D. NEVER manually loop over frames with separate 2D convolutions unless the architecture specifically requires it.
 - CRITICAL — For Transformers / ViT: implement the full attention mechanism using tensorflow.keras layers (MultiHeadAttention, LayerNormalization, Dense). For ViT, use Conv2D with stride=patch_size to extract patches — NEVER use a for-loop over patches. For text transformers, use tensorflow.keras.layers.Embedding + positional encoding.
 - For all description-mode models (no dataset): the script MUST demonstrate a complete forward pass and at least one training step using the synthetic data, saving the model to output/model.keras.
@@ -674,9 +732,14 @@ BEHAVIOUR:
      d. Encoder-only, decoder-only, or encoder-decoder?
      e. Training from scratch or fine-tuning a pretrained checkpoint?
 
-   → Once ALL necessary information is gathered, proceed with the research steps (STEP 1–5 above).
-   → The script will use synthetic/procedural data generation internally since no dataset file is provided.
-   → In the BUILD phase, the script MUST generate its own sample data (e.g. tf.random.normal, np.random) to demonstrate the full model forward pass and training loop.
+   → Once ALL necessary information is gathered:
+   STEP 0 — TF Datasets check (ALWAYS do this first for vision/NLP/audio/video tasks):
+     a. Call fetch_tensorflow_datasets(action="search", task_description="<user task>") to find a suitable dataset.
+     b. Tell the user which dataset you selected and why.
+     c. Call fetch_tensorflow_datasets(action="load", dataset_name="<chosen name>") to download and register it.
+     d. If available=true → the session is now in DATASET MODE. The script must use dataset.csv. Tell the user the dataset is ready and available for download.
+     e. If available=false → proceed with synthetic data. Tell the user no suitable public dataset was found.
+   STEP 1–5 — proceed with the research steps above (arXiv + TF docs + finalize_research).
 
 ── SHARED RULES ────────────────────────────────────────────────────────────────
 - ALWAYS use arxiv_id exactly as returned by search_arxiv — never modify, guess, or construct IDs.
@@ -738,9 +801,9 @@ STEP 1 — Approve the plan (FIRST CALL, DO THIS ONCE):
    If already in building phase (approve_plan was called in a prior turn), SKIP this step.
    NEVER call approve_plan more than once.
 
-STEP 2 — Inspect the dataset (DATASET MODE ONLY):
+STEP 2 — Inspect the dataset (DATASET MODE + description-mode tasks where tfds was loaded):
    Call run_code("import pandas as pd; df = pd.read_csv('dataset.csv'); print(df.shape); print(df.dtypes); print(df.head(2))")
-   SKIP entirely for CNN / Video / Transformer / description-mode tasks (no dataset file exists).
+   SKIP only if the session is pure synthetic mode (no dataset.csv exists — tfds returned available=false).
 
 STEP 3 — Write the training script (MANDATORY — ALWAYS DO THIS BEFORE create_notebook):
    Before writing, call query_research() for each key architectural decision to retrieve exact

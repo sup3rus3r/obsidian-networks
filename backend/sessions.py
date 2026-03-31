@@ -91,6 +91,23 @@ def session_expires_at(session: SessionData) -> int:
     return int(session.created_at + SESSION_TTL)
 
 
+def extend_session(sid: str, extra_seconds: int = SESSION_TTL) -> SessionData | None:
+    """Push the session TTL forward by bumping created_at and persisting to disk."""
+    session = get_session(sid)
+    if not session:
+        return None
+    # Shift created_at forward so the session lives for another SESSION_TTL from now
+    session.created_at = time.time()
+    meta_path = session.session_dir / "session_meta.json"
+    try:
+        meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+        meta["created_at"] = session.created_at
+        meta_path.write_text(json.dumps(meta))
+    except Exception:
+        pass
+    return session
+
+
 def _delete_session(sid: str) -> None:
     _sessions.pop(sid, None)
     shutil.rmtree(SESSIONS_DIR / sid, ignore_errors=True)

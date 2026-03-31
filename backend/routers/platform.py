@@ -21,6 +21,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from sessions import (
     SessionData,
     create_session,
+    extend_session,
     get_session,
     session_expires_at,
 )
@@ -104,6 +105,32 @@ async def check_session(session_id: str = Cookie(default=None)):
         "created_at": int(session.created_at),
         "expires_at": session_expires_at(session),
     }
+
+
+@router.post("/session/extend")
+async def extend_session_endpoint(session_id: str = Cookie(default=None)):
+    """Extend the current session TTL by resetting its created_at to now."""
+    from fastapi.responses import JSONResponse as _JSONResponse
+    if not session_id:
+        raise HTTPException(status_code=401, detail="No session cookie")
+    session = extend_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or already expired")
+    payload = {
+        "session_id": session_id,
+        "created_at": int(session.created_at),
+        "expires_at": session_expires_at(session),
+    }
+    resp = _JSONResponse(content=payload)
+    resp.set_cookie(
+        key      ="session_id",
+        value    =session_id,
+        httponly =True,
+        samesite ="lax",
+        secure   =False,
+        max_age  =SESSION_TTL,
+    )
+    return resp
 
 
 def analyse_dataset(df: pd.DataFrame) -> dict:
@@ -1276,3 +1303,192 @@ async def set_phase(session_id: str, payload: _PhaseRequest):
     _persist_phase(session)
 
     return {"phase": session.phase}
+
+
+# =============================================================================
+# TensorFlow Datasets integration
+# =============================================================================
+
+class _TFDSLoadRequest(_pydantic.BaseModel):
+    dataset_name    : str
+    max_samples     : int = _pydantic.Field(default=2000, ge=100, le=10000)
+    task_description: str = ""
+
+
+@router.post("/tfds/{session_id}/load")
+async def load_tfds_dataset(session_id: str, payload: _TFDSLoadRequest):
+    """Download a TensorFlow Dataset subset, convert to CSV, run analysis, and make it available.
+
+    - Saves a flat CSV of up to max_samples rows to session_dir/dataset.csv
+    - Also copies a subset to output/tfds_{dataset_name}_sample.csv for user download
+    - Populates session.analysis exactly like a user-uploaded dataset
+    - Returns the analysis dict so the AI can inform the user
+    """
+    import asyncio as _asyncio
+    import subprocess as _sp
+
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or expired")
+
+    # Sanitise dataset name — only allow alphanumeric, underscore, slash (for sub-splits like "mnist/3")
+    import re as _re
+    if not _re.match(r'^[\w/:\-\.]+$', payload.dataset_name) or len(payload.dataset_name) > 80:
+        raise HTTPException(status_code=400, detail="Invalid dataset name")
+
+    # We run the tfds download in a subprocess so it doesn't block the async event loop
+    # and inherits the full TF environment.
+    script = f"""
+import sys, json, os
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
+
+try:
+    import tensorflow_datasets as tfds
+    import pandas as pd
+    import numpy as np
+
+    dataset_name = {repr(payload.dataset_name)}
+    max_samples  = {payload.max_samples}
+    out_dir      = {repr(str(session.session_dir))}
+
+    # Load train split — take first max_samples examples
+    ds = tfds.load(dataset_name, split="train", shuffle_files=False, as_supervised=False)
+    ds = ds.take(max_samples)
+
+    rows = []
+    for example in tfds.as_numpy(ds):
+        row = {{}}
+        for k, v in example.items():
+            v = np.asarray(v)
+            if v.ndim == 0:
+                row[k] = v.item()
+            elif v.ndim == 1 and v.shape[0] <= 256:
+                for i, val in enumerate(v.flat):
+                    row[f"{{k}}_{{i}}"] = val
+            elif v.ndim >= 2:
+                # Images/audio tensors: flatten to feature vector, keep first 512 values
+                flat = v.flatten()[:512]
+                for i, val in enumerate(flat):
+                    row[f"{{k}}_{{i}}"] = val
+        rows.append(row)
+
+    df = pd.DataFrame(rows)
+    # Drop columns that are all-NaN
+    df = df.dropna(axis=1, how="all")
+
+    dataset_csv = os.path.join(out_dir, "dataset.csv")
+    df.to_csv(dataset_csv, index=False)
+
+    # Also save a user-downloadable subset to output/
+    sample_name = f"tfds_{{dataset_name.replace('/', '_')}}_sample.csv"
+    sample_csv  = os.path.join(out_dir, "output", sample_name)
+    df.head(min(500, len(df))).to_csv(sample_csv, index=False)
+
+    result = {{
+        "ok": True,
+        "available": True,
+        "rows": len(df),
+        "columns": len(df.columns),
+        "column_names": list(df.columns[:20]),
+        "sample_file": sample_name,
+        "dataset_csv": dataset_csv,
+    }}
+    print(json.dumps(result))
+
+except Exception as e:
+    result = {{"ok": False, "available": False, "error": str(e)}}
+    print(json.dumps(result))
+"""
+
+    snippet_path = session.session_dir / "_tfds_load.py"
+    snippet_path.write_text(script)
+
+    safe_env = {
+        "PATH"           : "/usr/local/bin:/usr/bin:/bin",
+        "PYTHONUNBUFFERED": "1",
+        "HOME"           : str(session.session_dir),
+        "TF_CPP_MIN_LOG_LEVEL": "3",
+    }
+
+    try:
+        proc = await _asyncio.wait_for(
+            _asyncio.create_subprocess_exec(
+                "python3", "-u", str(snippet_path),
+                stdout=_sp.PIPE,
+                stderr=_sp.PIPE,
+                cwd=str(session.session_dir),
+                env=safe_env,
+            ),
+            timeout=300,
+        )
+        stdout_bytes, stderr_bytes = await _asyncio.wait_for(proc.communicate(), timeout=300)
+    except _asyncio.TimeoutError:
+        snippet_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=504, detail="TFDS download timed out after 5 minutes")
+    except Exception as e:
+        snippet_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Subprocess error: {e}")
+    finally:
+        snippet_path.unlink(missing_ok=True)
+
+    stdout = stdout_bytes.decode(errors="replace").strip()
+    stderr = stderr_bytes.decode(errors="replace").strip()
+
+    # Parse the JSON result from the last line of stdout
+    result: dict = {}
+    for line in reversed(stdout.splitlines()):
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                import json as _json
+                result = _json.loads(line)
+                break
+            except Exception:
+                pass
+
+    if not result.get("ok"):
+        error_msg = result.get("error", stderr[:500] or "Unknown error")
+        return {
+            "ok"       : False,
+            "available": False,
+            "error"    : error_msg,
+            "dataset_name": payload.dataset_name,
+        }
+
+    # Run analyse_dataset on the freshly created dataset.csv
+    dataset_csv_path = session.session_dir / "dataset.csv"
+    if dataset_csv_path.exists():
+        try:
+            df_check = pd.read_csv(dataset_csv_path, nrows=5000)
+            analysis = analyse_dataset(df_check)
+            session.analysis = analysis
+            session.dataset_path = str(dataset_csv_path)
+            # Persist dataset_path to session_meta.json
+            meta_path = session.session_dir / "session_meta.json"
+            try:
+                meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+                meta["dataset_path"] = str(dataset_csv_path)
+                meta_path.write_text(json.dumps(meta))
+            except Exception:
+                pass
+        except Exception as analysis_err:
+            logger.warning("TFDS analysis failed for session %s: %s", session_id, analysis_err)
+            analysis = {}
+    else:
+        analysis = {}
+
+    return {
+        "ok"             : True,
+        "available"      : True,
+        "dataset_name"   : payload.dataset_name,
+        "rows"           : result.get("rows"),
+        "columns"        : result.get("columns"),
+        "column_names"   : result.get("column_names", []),
+        "sample_file"    : result.get("sample_file"),
+        "analysis"       : analysis,
+        "message"        : (
+            f"Dataset '{payload.dataset_name}' loaded: {result.get('rows')} rows, "
+            f"{result.get('columns')} columns. Saved as dataset.csv. "
+            f"A 500-row sample is available for download as {result.get('sample_file')}."
+        ),
+    }

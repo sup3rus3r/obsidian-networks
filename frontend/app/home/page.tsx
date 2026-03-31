@@ -2,7 +2,7 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { usePlatformSession } from '@/hooks/use-platform-session'
 import { useEnvironment } from '@/hooks/use-environment'
 import { ChatPanel, type ChatPanelHandle } from '@/components/chat/chat-panel'
@@ -18,14 +18,76 @@ import { Clock, RotateCcw, FlaskConical } from 'lucide-react'
 
 // ── Session banner ────────────────────────────────────────────────────────────
 
-function SessionBanner({ expiresAt }: { expiresAt: number | null }) {
-  if (!expiresAt) return null
-  const expiresLabel = new Date(expiresAt * 1000).toLocaleTimeString()
+const WARN_SECS = 5 * 60 // 5 minutes
+
+function SessionBanner({
+  expiresAt,
+  onExtend,
+  onNewSession,
+}: {
+  expiresAt   : number | null
+  onExtend    : () => Promise<void>
+  onNewSession: () => void
+}) {
+  const [remaining, setRemaining] = useState<number | null>(null)
+  const [extending, setExtending] = useState(false)
+
+  useEffect(() => {
+    if (!expiresAt) return
+    const tick = () => setRemaining(Math.max(0, expiresAt - Math.floor(Date.now() / 1000)))
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [expiresAt])
+
+  if (remaining === null) return null
+
+  // Expired
+  if (remaining === 0) {
+    return (
+      <button
+        onClick={onNewSession}
+        className="cursor-pointer flex items-center gap-1.5 text-[11px] text-red-500 hover:text-red-400 transition-colors"
+      >
+        <Clock className="h-3 w-3" />
+        <span>Session expired — start new session</span>
+      </button>
+    )
+  }
+
+  const hh   = Math.floor(remaining / 3600)
+  const mm   = Math.floor((remaining % 3600) / 60)
+  const ss   = remaining % 60
+  const label = hh > 0
+    ? `${hh}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`
+    : `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`
+
+  const isWarning = remaining <= WARN_SECS
+
+  const handleExtend = async () => {
+    setExtending(true)
+    try { await onExtend() } finally { setExtending(false) }
+  }
 
   return (
-    <div className="flex items-center gap-1.5 text-[11px] text-zinc-600">
-      <Clock className="h-3 w-3" />
-      <span>Session expires {expiresLabel}</span>
+    <div className="flex items-center gap-2">
+      <div className={`flex items-center gap-1.5 text-[11px] transition-colors ${
+        isWarning
+          ? 'text-amber-400 animate-pulse'
+          : 'text-zinc-600'
+      }`}>
+        <Clock className="h-3 w-3 shrink-0" />
+        <span>Session expires {label}</span>
+      </div>
+      {isWarning && (
+        <button
+          onClick={handleExtend}
+          disabled={extending}
+          className="cursor-pointer rounded border border-amber-500/40 px-1.5 py-0.5 text-[10px] text-amber-400 hover:border-amber-400/70 hover:text-amber-300 disabled:opacity-50 transition-colors"
+        >
+          {extending ? 'Extending…' : 'Extend'}
+        </button>
+      )}
     </div>
   )
 }
@@ -35,10 +97,12 @@ function SessionBanner({ expiresAt }: { expiresAt: number | null }) {
 function Header({
   environment,
   expiresAt,
+  onExtend,
   onNewSession,
 }: {
-  environment: { os: string; hardware: string; label: string }
-  expiresAt  : number | null
+  environment : { os: string; hardware: string; label: string }
+  expiresAt   : number | null
+  onExtend    : () => Promise<void>
   onNewSession: () => void
 }) {
   const osLabel: Record<string, string> = {
@@ -60,7 +124,7 @@ function Header({
       />
 
       <div className="flex items-center gap-3">
-        <SessionBanner expiresAt={expiresAt} />
+        <SessionBanner expiresAt={expiresAt} onExtend={onExtend} onNewSession={onNewSession} />
 
         <div className="flex items-center gap-1.5">
           <Badge variant="outline" className="h-5 border-zinc-700 px-1.5 text-[10px] text-zinc-400">
@@ -100,7 +164,7 @@ function Header({
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function Home() {
-  const { sessionId, loading, error, isValid, expiresAt, refresh, newSession } = usePlatformSession()
+  const { sessionId, loading, error, isValid, expiresAt, refresh, newSession, extendSession } = usePlatformSession()
   const { environment } = useEnvironment()
 
   // Incrementing this key forces ChatPanel + ArtifactPanel to remount (clears all local state)
@@ -154,6 +218,7 @@ export default function Home() {
       <Header
         environment={environment}
         expiresAt={expiresAt}
+        onExtend={extendSession}
         onNewSession={handleNewSession}
       />
 

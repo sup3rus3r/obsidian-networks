@@ -29,6 +29,16 @@ export const createSession = async (): Promise<{ session_id: string } | null> =>
   }
 }
 
+export const extendSession = async (): Promise<{ session_id: string; expires_at: number } | null> => {
+  try {
+    const res = await fetch(AppRoutes.ExtendSession(), { method: 'POST', credentials: 'include' })
+    if (!res.ok) return null
+    return res.json()
+  } catch {
+    return null
+  }
+}
+
 export const uploadDataset = async (
   sessionId: string,
   file: File,

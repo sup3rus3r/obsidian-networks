@@ -10,6 +10,7 @@ const UPLOAD_BASE  = process.env.NEXT_PUBLIC_UPLOAD_URL ?? ''
 export const AppRoutes = {
   PlatformLimits:     ()            => `/api/platform/limits`,
   CreateSession:      ()            => `/api/platform/session`,
+  ExtendSession:      ()            => `/api/platform/session/extend`,
   UploadDataset:      (sid: string) => `${UPLOAD_BASE}/platform/upload/${sid}`,
   PreviewDataset:     (sid: string) => `/api/platform/preview/${sid}`,
   DatasetAnalysis:    (sid: string) => `/api/platform/analysis/${sid}`,

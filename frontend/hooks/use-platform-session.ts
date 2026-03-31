@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { createSession } from '@/app/api/platform'
+import { createSession, extendSession as apiExtendSession } from '@/app/api/platform'
 
 /** Ping the backend to confirm the cookie-bound session is still alive. */
 async function verifySession(): Promise<boolean> {
@@ -25,6 +25,8 @@ interface UsePlatformSessionReturn extends SessionState {
   refresh: () => Promise<void>
   /** Force-create a brand new session, discarding the current one */
   newSession: () => Promise<void>
+  /** Extend the current session TTL by another full period */
+  extendSession: () => Promise<void>
   /** True if session exists and has not expired */
   isValid: boolean
 }
@@ -99,9 +101,18 @@ export function usePlatformSession(): UsePlatformSessionReturn {
     await initSession()
   }, [initSession])
 
+  const extendSession = useCallback(async () => {
+    const data = await apiExtendSession()
+    if (!data) return
+    if ('expires_at' in data) {
+      sessionStorage.setItem(EXPIRES_STORAGE_KEY, String(data.expires_at))
+      setState(prev => ({ ...prev, expiresAt: data.expires_at }))
+    }
+  }, [])
+
   const isValid =
     state.sessionId !== null &&
     (state.expiresAt === null || Date.now() / 1000 < state.expiresAt - 60)
 
-  return { ...state, refresh: initSession, newSession, isValid }
+  return { ...state, refresh: initSession, newSession, extendSession, isValid }
 }
