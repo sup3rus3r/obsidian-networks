@@ -1140,7 +1140,6 @@ def run_compilation_task(self, session_id: str) -> dict:
     logger.info("[patch] original load block (lines 1-80):\n%s", '\n'.join(code.splitlines()[:80]))
     validate_code(code)
     code = patch_live_data_sources(code)
-    code = patch_dataset_filename(code)
     code = patch_column_names_print(code)
     code = patch_keras_mistakes(code)
     code = patch_load_data_missing_return(code)

@@ -356,7 +356,7 @@ function createScriptTools(sessionId: string | null) {
     description:
       'Execute a Python snippet in the session working directory and return the output. ' +
       'Use this to test data loading, inspect column names/shapes/dtypes, and validate ' +
-      'logic before writing the full script. Has access to dataset.csv and all installed packages. ' +
+      'logic before writing the full script. Has access to uploaded dataset files and all installed packages. ' +
       '30-second timeout — not for full training runs. ' +
       'NOTE: subprocess and os.system are blocked here — use pip_install tool for package fixes.',
     inputSchema: z.object({
@@ -594,8 +594,8 @@ Only use synthetic tf.random.normal() data if no suitable tfds dataset exists.
 </format>
 
 <constraints>
-- The dataset is ALWAYS available as "dataset.csv" (or "dataset.json" for JSON uploads). NEVER use the original uploaded filename.
-- CRITICAL — When a TF Dataset was loaded via fetch_tensorflow_datasets, the data is already in "dataset.csv". NEVER import tensorflow_datasets in the training script — just read dataset.csv with pandas as normal. The tfds download already happened before the script runs.
+- The user may upload one or more files. Each file is saved by its ORIGINAL filename (e.g. "train.csv", "test.csv", "labels.json"). The [Dataset: ...] blocks in the user message list every uploaded file with its exact name and schema — use EXACTLY those filenames in your script. NEVER invent or guess filenames.
+- If multiple files are uploaded (e.g. train.csv + test.csv), use them appropriately: load each by its real name, do NOT concatenate them unless the task requires it.
 - All model output files (.keras, .h5) MUST be saved inside the "output/" subdirectory
 - If your script creates a derived dataset a later step must read back, save it to "output/filename.csv". NEVER use a bare filename for derived files — the platform rewrites bare filenames to "dataset.csv".
 - DO NOT write any matplotlib/seaborn plot code or plt.savefig calls — the platform auto-generates canonical diagnostic plots
@@ -782,7 +782,8 @@ STEP 1 — Approve the plan (FIRST CALL, DO THIS ONCE):
    NEVER call approve_plan more than once.
 
 STEP 2 — Inspect the dataset (DATASET MODE / user-uploaded CSV only):
-   Call run_code("import pandas as pd; df = pd.read_csv('dataset.csv'); print(df.shape); print(df.dtypes); print(df.head(2))")
+   Use the exact filename(s) from the [Dataset: ...] blocks in the user message.
+   Example: run_code("import pandas as pd; df = pd.read_csv('<real_filename.csv>'); print(df.shape); print(df.dtypes); print(df.head(2))")
    SKIP for: tfds-based scripts (dataset downloads in the notebook, not on the server) and pure synthetic mode.
 
 STEP 3 — Write the training script (MANDATORY — ALWAYS DO THIS BEFORE create_notebook):

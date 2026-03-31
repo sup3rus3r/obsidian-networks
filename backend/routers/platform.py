@@ -309,9 +309,32 @@ async def upload_dataset(session_id: str, request: Request):
     if len(df.columns) < 2:
         raise HTTPException(status_code=400, detail="Dataset must have at least 2 columns")
 
-    # Save to disk
+    # Save to disk using the original filename (sanitised)
+    import re as _re
+    safe_name = _re.sub(r'[^\w\.\-]', '_', Path(file.filename or f"dataset{ext}").name)
+    dest_path = session.session_dir / safe_name
     dest_path.write_bytes(raw_bytes)
-    session.dataset_path = str(dest_path)
+
+    # Track all uploaded files
+    if session.dataset_paths is None:
+        session.dataset_paths = []
+    # Remove any existing entry with the same name (replace if re-uploaded)
+    session.dataset_paths = [f for f in session.dataset_paths if f["name"] != safe_name]
+    session.dataset_paths.append({"name": safe_name, "path": str(dest_path)})
+
+    # Primary dataset path = first file ever uploaded (for backwards compat)
+    if not session.dataset_path:
+        session.dataset_path = str(dest_path)
+
+    # Persist to session_meta.json
+    meta_path = session.session_dir / "session_meta.json"
+    try:
+        meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+        meta["dataset_path"]  = session.dataset_path
+        meta["dataset_paths"] = session.dataset_paths
+        meta_path.write_text(json.dumps(meta))
+    except Exception:
+        pass
 
     # Run meta-feature extraction and cache the result
     analysis = analyse_dataset(df)
@@ -319,13 +342,24 @@ async def upload_dataset(session_id: str, request: Request):
     (session.session_dir / "analysis.json").write_text(json.dumps(analysis))
 
     return {
-        "session_id" : session_id,
-        "filename"   : file.filename,
-        "size_bytes" : total_size,
-        "rows"       : len(df),
-        "columns"    : len(df.columns),
-        "analysis"   : analysis,
+        "session_id"  : session_id,
+        "filename"    : safe_name,
+        "size_bytes"  : total_size,
+        "rows"        : len(df),
+        "columns"     : len(df.columns),
+        "analysis"    : analysis,
+        "all_files"   : [f["name"] for f in session.dataset_paths],
     }
+
+
+@router.get("/files/{session_id}")
+async def list_uploaded_files(session_id: str):
+    """Return all files uploaded for this session."""
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or expired")
+    files = session.dataset_paths or []
+    return {"files": [f["name"] for f in files]}
 
 
 @router.get("/preview/{session_id}")
@@ -381,7 +415,7 @@ pip install "tensorflow-cpu>=2.16" pandas scikit-learn matplotlib seaborn statsm
 ```
 
 ### Place your dataset
-Copy `dataset.csv` into the **same directory as this notebook** before running.
+Copy your dataset file(s) into the **same directory as this notebook** before running.
 """,
 
     "nvidia_gpu": """\
@@ -409,7 +443,7 @@ print(tf.config.list_physical_devices('GPU'))  # should list your GPU
 ```
 
 ### Place your dataset
-Copy `dataset.csv` into the **same directory as this notebook**.
+Copy your dataset file(s) into the **same directory as this notebook**.
 """,
 
     "google_colab": """\
@@ -422,7 +456,7 @@ Google Colab already includes TensorFlow. Just install the extra dependencies:
 ```
 
 ### Upload your dataset
-Use the Colab file browser (left panel → Files icon) to upload `dataset.csv`,
+Use the Colab file browser (left panel → Files icon) to upload your dataset file(s),
 or mount Google Drive and point `DATA_PATH` to the correct path.
 """,
 }
@@ -566,10 +600,12 @@ def _validate_script(script: str) -> list[str]:
 
     # Dataset reference check: skip for RL (custom loops) and description-mode
     # scripts that correctly generate their own synthetic data with no file upload.
-    if not is_rl and not is_synthetic and "dataset.csv" not in script and "dataset.json" not in script:
+    # Accept any .csv or .json filename — users may upload train.csv, test.csv, etc.
+    import re as _re_val
+    if not is_rl and not is_synthetic and not _re_val.search(r'["\'][^"\']+\.(csv|json)["\']', script):
         errors.append(
-            "Script does not reference 'dataset.csv' or 'dataset.json'. "
-            "Use DATA_PATH = 'dataset.csv' — do not use the original uploaded filename."
+            "Script does not load any .csv or .json file. "
+            "Use the exact filenames from the uploaded dataset(s) shown in the user message schema block."
         )
 
     # Normalization layer check: only flag for supervised (non-RL) scripts,
@@ -612,13 +648,12 @@ async def create_notebook(session_id: str, payload: dict):
 
     # Apply all worker patches so the notebook matches what actually ran
     from tasks import (
-        patch_live_data_sources, patch_dataset_filename, patch_keras_mistakes,
+        patch_live_data_sources, patch_keras_mistakes,
         patch_load_data_missing_return, patch_synthetic_data_fallback,
         patch_categorical_encoding, patch_df_none_guard, patch_safe_concatenate,
         patch_normalizer_name, patch_tf_float_cast,
     )
     script = patch_live_data_sources(script)
-    script = patch_dataset_filename(script)
     script = patch_keras_mistakes(script)
     script = patch_load_data_missing_return(script)
     script = patch_synthetic_data_fallback(script)

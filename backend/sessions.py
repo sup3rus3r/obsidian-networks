@@ -13,16 +13,17 @@ SESSION_TTL  = int(os.environ.get("SESSION_TTL_HOURS", "4")) * 3600
 
 @dataclass
 class SessionData:
-    created_at  : float
-    session_dir : Path
-    dataset_path: str | None = None
-    analysis    : dict | None = None
-    environment : dict | None = None
-    task_id     : str | None = None
+    created_at   : float
+    session_dir  : Path
+    dataset_path : str | None = None        # primary file (first upload) — kept for compat
+    dataset_paths: list | None = None       # all uploaded files [{name, path}]
+    analysis     : dict | None = None
+    environment  : dict | None = None
+    task_id      : str | None = None
     # Research → Plan → Build state machine (v0.7.0)
     # Phases: idle | researching | planning | approved | building
-    phase       : str        = "idle"
-    plan_doc    : str | None = None
+    phase        : str        = "idle"
+    plan_doc     : str | None = None
 
 
 _sessions: dict[str, SessionData] = {}
@@ -57,7 +58,7 @@ def create_session() -> str:
     (session_dir / "session_meta.json").write_text(
         json.dumps({"created_at": created_at})
     )
-    _sessions[sid] = SessionData(created_at=created_at, session_dir=session_dir)
+    _sessions[sid] = SessionData(created_at=created_at, session_dir=session_dir, dataset_paths=[])
     return sid
 
 
@@ -71,9 +72,10 @@ def get_session(sid: str) -> SessionData | None:
             try:
                 meta    = json.loads(meta_path.read_text())
                 session = SessionData(
-                    created_at  = meta["created_at"],
-                    session_dir = session_dir,
-                    dataset_path= meta.get("dataset_path"),
+                    created_at   = meta["created_at"],
+                    session_dir  = session_dir,
+                    dataset_path = meta.get("dataset_path"),
+                    dataset_paths= meta.get("dataset_paths", []),
                 )
                 _restore_phase(session)
                 _sessions[sid] = session

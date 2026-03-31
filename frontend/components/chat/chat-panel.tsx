@@ -311,8 +311,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   }, [messages, localCards])
 
   const handleFileSelect = useCallback((file: File) => {
-    const isImage = file.type.startsWith('image/')
-    setPendingFiles(prev => isImage ? [...prev, file] : [file])
+    setPendingFiles(prev => [...prev, file])
     setUploadProgress(0)
     setUploadError(null)
   }, [])
@@ -331,6 +330,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       setIsUploading(true)
       setUploadError(null)
 
+      const datasetFiles = filesToUpload.filter(f => !f.type.startsWith('image/') && !f.type.startsWith('video/'))
+      const mediaFiles   = filesToUpload.filter(f => f.type.startsWith('image/') || f.type.startsWith('video/'))
+
       for (const file of filesToUpload) {
         const uploaded = await uploadDataset(sessionId, file, setUploadProgress)
         if (!uploaded) {
@@ -340,20 +342,27 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         }
       }
 
-      if (isVisionFile) {
-        const mediaType = filesToUpload[0].type.startsWith('video/') ? 'video' : 'image'
-        const names = filesToUpload.map(f => f.name).join(', ')
-        schemaBlock = `\n\n[Attached ${filesToUpload.length} ${mediaType} file(s): ${names}. Focus on vision-based architectures and computer vision approaches.]`
-      } else {
+      if (mediaFiles.length > 0) {
+        const mediaType = mediaFiles[0].type.startsWith('video/') ? 'video' : 'image'
+        const names = mediaFiles.map(f => f.name).join(', ')
+        schemaBlock += `\n\n[Attached ${mediaFiles.length} ${mediaType} file(s): ${names}. Focus on vision-based architectures and computer vision approaches.]`
+      }
+
+      if (datasetFiles.length > 0) {
         const preview = await getDatasetPreview(sessionId) as DatasetPreview | null
         if (preview) {
-          const cardId = `card-${Date.now()}`
           const afterId = messages.length > 0 ? messages[messages.length - 1].id : 'top'
-          setLocalCards(prev => [
-            ...prev,
-            { id: cardId, afterMsgId: afterId, filename: filesToUpload[0].name, preview },
-          ])
-          schemaBlock = formatSchema('dataset.csv', preview)
+          // Show a card for each dataset file (using first file's preview for schema)
+          for (let i = 0; i < datasetFiles.length; i++) {
+            setLocalCards(prev => [
+              ...prev,
+              { id: `card-${Date.now()}-${i}`, afterMsgId: afterId, filename: datasetFiles[i].name, preview },
+            ])
+          }
+          // Inject schema for each file with its real filename
+          for (const file of datasetFiles) {
+            schemaBlock += formatSchema(file.name, preview)
+          }
         }
       }
 
@@ -489,7 +498,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 <TooltipTrigger asChild>
                   <PromptInputButton
                     tooltip="Attach CSV or JSON dataset"
-                    disabled={isLoading || isUploading || (pendingFiles.length > 0 && !pendingFiles[0].type.startsWith('image/'))}
+                    disabled={isLoading || isUploading}
                     className="cursor-pointer text-zinc-400 hover:text-[#39FF14]"
                     onClick={() => {
                       // Trigger a hidden file input via a temporary input element
