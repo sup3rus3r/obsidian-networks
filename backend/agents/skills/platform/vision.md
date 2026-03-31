@@ -20,7 +20,7 @@ avoids the most common spatial-dimension collapse and shape errors.
 
 - Do NOT flatten or use GlobalAveragePooling2D before sufficient spatial reduction.
 - Do NOT use BatchNorm with batch_size < 32 — use LayerNorm or GroupNorm instead.
-- In description mode (no dataset), generate synthetic tensors with `tf.random.normal(shape=(N, H, W, C))` matching the stated resolution — NEVER reference a file path.
+- In description mode (no dataset uploaded), ALWAYS call `fetch_tensorflow_datasets` first to find and load a real public dataset (e.g. mnist, cifar10, cifar100, oxford_flowers102, stanford_dogs). If a dataset is loaded successfully, treat the session as DATASET MODE and use `dataset.csv`. Only fall back to `tf.random.normal(shape=(N, H, W, C))` synthetic tensors if `fetch_tensorflow_datasets` returns `available=false`.
 - Skip connections are required for depth ≥ 4 conv blocks — without them models do not converge in 5 epochs on synthetic data.
 - ViT patch embedding dim must equal the transformer's `d_model` in every layer.
 - The `num_heads × key_dim` product must equal `embed_dim` in every MultiHeadAttention call.
@@ -73,7 +73,8 @@ Follow the standard BUILD SEQUENCE. Key vision-specific steps:
    print(df.shape, df.columns.tolist()[:5])
    ```
 2. In `edit_script`:
-   - For description mode: `X = tf.random.normal(shape=(500, H, W, C), dtype=tf.float32)`
+   - For description mode with tfds dataset loaded: read `dataset.csv`, reconstruct image tensors from the flattened pixel columns, normalise to [0,1], split train/val
+   - For description mode with no suitable dataset (synthetic fallback): `X = tf.random.normal(shape=(500, H, W, C), dtype=tf.float32)`
    - For CNN: build with Functional API — Input → Conv2D blocks → GlobalAveragePooling2D → Dense
    - For ViT: Conv2D(embed_dim, patch_size, strides=patch_size) for patch extraction, then Reshape → TransformerBlock × N → GlobalAveragePooling1D → Dense
    - Normalize pixel values: `x = tf.cast(x, tf.float32) / 255.0` when using real images

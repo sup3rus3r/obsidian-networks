@@ -15,6 +15,7 @@ RUN pip install --no-cache-dir --timeout 300 --prefix=/install \
     "numpy>=2.0.0,<3.0.0" \
     "tensorflow-cpu>=2.18.0" \
     "tensorflow-datasets>=4.9.0" \
+    "importlib_resources>=6.0.0" \
     "scikit-learn>=1.4.0" \
     "scipy>=1.13.0" \
     "pandas>=2.0.0" \

@@ -614,6 +614,7 @@ Only use synthetic tf.random.normal() data if no suitable tfds dataset exists (f
 
 <constraints>
 - The dataset is ALWAYS available as "dataset.csv" (or "dataset.json" for JSON uploads). NEVER use the original uploaded filename.
+- CRITICAL — When a TF Dataset was loaded via fetch_tensorflow_datasets, the data is already in "dataset.csv". NEVER import tensorflow_datasets in the training script — just read dataset.csv with pandas as normal. The tfds download already happened before the script runs.
 - All model output files (.keras, .h5) MUST be saved inside the "output/" subdirectory
 - If your script creates a derived dataset a later step must read back, save it to "output/filename.csv". NEVER use a bare filename for derived files — the platform rewrites bare filenames to "dataset.csv".
 - DO NOT write any matplotlib/seaborn plot code or plt.savefig calls — the platform auto-generates canonical diagnostic plots

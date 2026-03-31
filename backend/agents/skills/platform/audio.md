@@ -20,7 +20,7 @@ correct channel dimension and uses GlobalAveragePooling2D or temporal pooling.
 ## Key Principles
 
 - Spectrogram input shape is `(n_mels, time_frames, 1)` — the channel dimension must always be present.
-- In description mode (no dataset), generate: `X = np.random.uniform(0, 1, (1000, 64, 32, 1)).astype(np.float32)`
+- In description mode (no dataset uploaded), ALWAYS call `fetch_tensorflow_datasets` first to find and load a real public audio dataset (e.g. speech_commands, groove/full-midionly, fuss). If a dataset is loaded successfully, treat the session as DATASET MODE and use `dataset.csv`. Only fall back to `np.random.uniform(0, 1, (1000, 64, 32, 1)).astype(np.float32)` synthetic spectrograms if `fetch_tensorflow_datasets` returns `available=false`.
 - Do NOT use 1D convolutions on raw waveforms — the platform pipeline delivers spectrograms.
 - For conformer-style: subsampling Conv2D → Reshape → Transformer blocks → GlobalAveragePooling1D → Dense.
 - For CNN-audio: Conv2D stacks along frequency and time axes → GlobalAveragePooling2D → Dense.
@@ -73,7 +73,8 @@ Follow the standard BUILD SEQUENCE. Key audio-specific steps:
    - For CNN: Conv2D(32,3,relu)→BN → Conv2D(64,3,relu)→BN → MaxPool2D(2) → Conv2D(128,3,relu)→BN → GlobalAveragePooling2D() → Dense(128,relu) → Dense(n_classes,softmax)
    - For conformer: Conv2D(128,3,stride=2)→Reshape→TransformerBlocks→GlobalAveragePooling1D→Dense
 2. Compile with `loss='sparse_categorical_crossentropy', metrics=['accuracy']`
-3. For description mode synthetic data: `X = np.random.uniform(0,1,(1000,64,32,1)).astype(np.float32); y = np.random.randint(0,10,(1000,))`
+3. For description mode with tfds dataset loaded: read `dataset.csv`, reconstruct spectrogram tensors from columns, add channel dim if missing
+   For description mode with no suitable dataset (synthetic fallback): `X = np.random.uniform(0,1,(1000,64,32,1)).astype(np.float32); y = np.random.randint(0,10,(1000,))`
 
 ## Domain-Specific Guidance
 

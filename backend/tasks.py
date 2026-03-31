@@ -22,6 +22,7 @@ MAX_EPOCHS           = int(os.environ.get("MAX_EPOCHS", "200"))
 ALLOWED_IMPORTS = {
     # Deep learning
     "tensorflow", "keras", "torch", "torchvision", "torchaudio",
+    "tensorflow_datasets",
     # Data / numerics
     "numpy", "pandas", "scipy", "statsmodels", "sympy", "xarray",
     # ML / sklearn ecosystem
