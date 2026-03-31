@@ -23,7 +23,7 @@ feeds it into classification or sequence-to-sequence architectures.
 - For classification: LSTM or Transformer encoder followed by GlobalAveragePooling1D + Dense.
 - For generation: decoder-only Transformer with causal masking — use `MultiHeadAttention(use_causal_mask=True)`.
 - Do NOT use `hub.KerasLayer` or any TF-Hub pretrained model — the platform environment may not have internet access.
-- In description mode (no dataset uploaded), ALWAYS call `fetch_tensorflow_datasets` first to find and load a real public text dataset (e.g. imdb_reviews, ag_news_subset, glue/sst2). If a dataset is loaded successfully, treat the session as DATASET MODE and use `dataset.csv`. Only fall back to synthetic/random text data if `fetch_tensorflow_datasets` returns `available=false`.
+- In description mode (no dataset uploaded), ALWAYS call `fetch_tensorflow_datasets` first to find a suitable public text dataset (e.g. imdb_reviews, ag_news_subset, glue/sst2). If one is found, write `tfds.load(dataset_name, split="train", as_supervised=True)` directly into the training script — the dataset downloads on the user's machine when they run the notebook. Do NOT download it on the server, do NOT use `dataset.csv` for tfds data. Only fall back to synthetic/random text data if no suitable dataset exists.
 - Positional encoding for Transformers must be added explicitly — Keras `Embedding` does not add it.
 
 ## Procedure
