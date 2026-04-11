@@ -29,11 +29,11 @@ integrates with gymnasium environments (or synthetic fallback) correctly.
 
 ### RESEARCH Phase
 
-**CRITICAL: Never ingest paper URLs from your training knowledge. Only ingest URLs returned by arXiv search results. Do not use URLs you already know (e.g. FinRL, DQN papers, classic RL papers) — these are old and defeat the purpose of research.**
+**CRITICAL: Never ingest paper URLs from your training knowledge. Only ingest URLs returned by arXiv search results. Do not use papers you already know — these are old and defeat the purpose of research.**
 
 1. Run both arXiv searches in parallel using the `search_arxiv` tool — use the results returned, not papers you know:
-   - `"deep Q-network DQN replay buffer target network 2024"`
-   - `"actor-critic policy gradient advantage PPO reinforcement learning 2025"`
+   - `"deep Q-network DQN replay buffer target network"`
+   - `"actor-critic policy gradient advantage PPO reinforcement learning"`
 2. Select 3–4 papers from the search results only. For DQN: replay buffer size, target network update frequency. For actor-critic: advantage estimation, clipping.
 3. Ingest only the URLs from those search results in parallel.
 4. Fetch TF/Keras docs in parallel:
@@ -84,14 +84,14 @@ Follow the standard BUILD SEQUENCE. Key RL-specific steps:
    ```
 2. For DQN: separate `q_network` and `target_network`; hard-copy weights every `target_update_freq` steps.
 3. For REINFORCE: store episode trajectory, compute discounted returns, compute policy gradient loss with `tf.GradientTape`.
-4. Gymnasium environment: try `LunarLander-v3`, fallback to `CartPole-v1` if unavailable; use synthetic data as last resort if gymnasium is not installed.
+4. Gymnasium environment: try the environment the user described; if unavailable or not installed, fall back to a simple discrete control environment from gymnasium, or generate synthetic state transitions as a last resort.
 5. Save policy network: `q_network.save('output/model.keras')` or `actor.save('output/model.keras')`.
 
 ## Domain-Specific Guidance
 
 ### Algorithm Selection Guide
 
-- **DQN** — discrete action space (CartPole, LunarLander), stable but requires replay buffer and target network
+- **DQN** — discrete action space, stable but requires replay buffer and target network
 - **REINFORCE** — discrete or continuous, no replay buffer, high variance — use only for simple environments
 - **A2C/PPO** — continuous or discrete, more stable than REINFORCE; use when DQN is not suitable
 
@@ -126,12 +126,25 @@ For continuous action space (actor):
 - No minimum buffer fill before training — early training on tiny buffers is noisy and causes divergence.
 - Very large neural networks (> 3 layers, > 512 units) for simple environments — overfits the replay buffer; use 2 layers of 128–256 units.
 - Missing `terminated | truncated` check — the `done` flag requires both; ignoring truncation causes incorrect value bootstrapping.
+- **`RewardNormalizer` with PPO** — PPO must never use `RewardNormalizer`. PPO achieves variance reduction by normalizing *advantages* (computed via GAE), not raw rewards. Applying `RewardNormalizer` on top of that corrupts the reward signal before advantage estimation and gains nothing — the GAE computation already handles scale. `reward_normalizer=None` is always correct for `TFPPOAgent`.
+- **`RewardNormalizer` on any trading/financial task** — doubly forbidden. The PnL, return %, or profit IS the reward signal; normalizing it collapses a $1000 gain and a $1 gain to the same value.
+
+### Trading / Financial RL Constraints
+
+When the task involves trading, portfolio management, market-making, or any environment
+where the reward is expressed in monetary or percentage-return units:
+
+- **Reward** — do NOT normalize, clip, or rescale. Use raw PnL/return as the reward signal.
+- **Observations** — DO normalize using `ObsNormalizer` from `tensor_optix`. Price levels,
+  volume, technical indicators all benefit from zero-mean unit-variance normalization.
+- **Algorithm** — prefer PPO (`TFPPOAgent`) or SAC (`TFSACAgent`) over DQN for continuous
+  or multi-step position sizing. DQN is only appropriate for discrete {buy, hold, sell}.
 
 ### Common Failure Modes
 
-- **Q-values explode** — no reward clipping or normalisation. Clip rewards to [-1, 1] for Atari-style tasks; normalise returns to zero-mean for policy gradient.
+- **Q-values explode** — no reward scaling. For environments with arbitrary reward magnitudes, clip rewards to a fixed range (e.g. [-1, 1]). For policy gradient, normalise *advantages* (not raw rewards) to zero-mean. Never clip or normalise rewards when the reward is a financial signal (PnL, return %) — see Trading Constraints above.
 - **Policy gradient variance too high** — no baseline. For REINFORCE, subtract a running mean of returns as a baseline.
-- **gymnasium environment not installed** — wrap import in try/except; fall back to `CartPole-v1` (ships with gym) or generate synthetic state transitions.
+- **gymnasium environment not installed** — wrap import in try/except; fall back to a simple bundled gymnasium environment or generate synthetic state transitions.
 - **Actor-critic critic loss dominates** — use separate optimizers and loss weights; scale critic loss by 0.5 relative to actor loss.
 
 ## Examples
@@ -140,13 +153,13 @@ For continuous action space (actor):
 
 ```
 ## 5. Training Strategy
-Algorithm: DQN with experience replay and target network  [Mnih et al. 2015, https://...]
-Q-network: Input(8,) → Dense(128,relu) → Dense(128,relu) → Dense(4,linear)  [4 discrete actions]
+Algorithm: DQN with experience replay and target network  [Author et al., https://arxiv.org/...]
+Q-network: Input(obs_dim,) → Dense(128,relu) → Dense(128,relu) → Dense(n_actions,linear)
 Target network: hard copy every 200 steps
 Replay buffer: deque(maxlen=50000), min fill=1000 before first training step
 ε: 1.0 → 0.01 over 10000 steps (linear decay)
 Optimizer: Adam(lr=5e-4), loss: MSE on TD-error
-Episodes: 500. Convergence: mean reward > 200 over 10 episodes.
+Episodes: 500. Convergence: mean reward stable over last N episodes.
 Save q_network to output/model.keras.
 ```
 
